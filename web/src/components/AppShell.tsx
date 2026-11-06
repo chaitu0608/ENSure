@@ -51,22 +51,21 @@ export function AppShell() {
   const location = useLocation();
   const appBuildCid = import.meta.env.VITE_APP_BUILD_CID?.trim() || "not provided";
   return <div className="app-canvas min-h-screen text-zinc-100">
-    <div aria-hidden="true" className="ambient-orbit" />
-    <header className="sticky top-0 z-30 border-b border-white/[0.075] bg-[#080a0e]/85 backdrop-blur-2xl">
-      <div className="mx-auto flex h-[72px] max-w-[1440px] items-center justify-between gap-4 px-4 sm:px-7 lg:px-10">
+    <header className="sticky top-0 z-30 border-b border-violet-200/[0.09] bg-[#0b0b15]/75 backdrop-blur-2xl">
+      <div className="mx-auto flex h-[64px] max-w-[1440px] items-center justify-between gap-4 px-4 sm:px-7 lg:px-10">
         <NavLink to="/" className="group flex shrink-0 items-center gap-3 rounded-lg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-400" aria-label="ENSure overview">
-          <div className="brand-mark relative grid size-9 place-items-center overflow-hidden rounded-[12px] border border-blue-300/20 bg-blue-400/[0.09] text-blue-200">
+          <div className="brand-mark relative grid size-8 place-items-center overflow-hidden rounded-[9px] border border-violet-200/20 bg-white/[0.07] text-white">
             <ShieldCheck aria-hidden="true" className="size-[18px]" />
           </div>
           <div><div className="text-[15px] font-semibold tracking-[-.04em] text-white">ENSure</div><div className="hidden text-[10px] tracking-wide text-zinc-400 sm:block">Release integrity</div></div>
         </NavLink>
 
-        <nav aria-label="Primary navigation" className="hidden items-center gap-1 rounded-2xl border border-white/[0.055] bg-white/[0.018] p-1 md:flex">
-          {links.map(({ to, label, end }) => <NavLink key={to} to={to} end={end} className={({ isActive }) => cn("rounded-xl px-3.5 py-2 text-xs font-medium focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-400", isActive ? "bg-white/[0.09] text-white" : "text-zinc-400 hover:text-zinc-200")}>{label}</NavLink>)}
+        <nav aria-label="Primary navigation" className="hidden items-center gap-1 md:flex">
+          {links.map(({ to, label, end }) => <NavLink key={to} to={to} end={end} className={({ isActive }) => cn("relative rounded-md px-3 py-2 text-[13px] font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-200/60", isActive ? "bg-white/[0.085] text-white after:absolute after:inset-x-3 after:-bottom-[9px] after:h-px after:bg-gradient-to-r after:from-[#b19cff] after:via-[#78e4ef] after:to-[#b4f0c6]" : "text-zinc-400 hover:bg-violet-200/[0.055] hover:text-zinc-100")}>{label}</NavLink>)}
         </nav>
 
         <div className="flex shrink-0 items-center gap-2 sm:gap-3">
-          <div className="hidden items-center gap-2 rounded-xl border border-white/[0.07] bg-white/[0.025] px-3 py-2 text-[11px] text-zinc-400 sm:flex"><span aria-hidden="true" className="size-1.5 rounded-full bg-blue-300" /> Sepolia</div>
+          <div className="hidden items-center gap-2 rounded-md border border-emerald-200/[0.13] bg-emerald-200/[0.045] px-3 py-2 text-xs text-zinc-300 sm:flex"><span aria-hidden="true" className="size-1.5 rounded-full bg-emerald-300" /> Sepolia</div>
           <WalletControl />
         </div>
       </div>

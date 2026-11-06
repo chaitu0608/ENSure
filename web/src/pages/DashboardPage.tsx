@@ -1,7 +1,6 @@
 import { useQuery } from "@tanstack/react-query";
 import { ArrowRight, ArrowUpRight, Check, CircleHelp, Clock3, ExternalLink, FileCheck2, Fingerprint, TriangleAlert, X } from "lucide-react";
 import { Link } from "react-router-dom";
-import { SectionHeading } from "@/components/SectionHeading";
 import { ReleaseFlow } from "@/components/ReleaseFlow";
 import { EnvironmentCard } from "@/components/EnvironmentCard";
 import { Reveal } from "@/components/Reveal";
@@ -39,11 +38,24 @@ export function DashboardPage() {
       : verification?.explanation ?? "A complete release record is not available yet.";
 
   return <div className="space-y-8 sm:space-y-10">
-    <SectionHeading eyebrow={`ENSURE · ${deployment.projectName}`} title="Know exactly what is live." description="ENSure ties a website release to its owner-approved CID, then lets anyone verify the name and files before they trust the site." action={<Button asChild><Link to="/verify"><Fingerprint aria-hidden="true" className="size-4" /> Verify a release <ArrowRight aria-hidden="true" className="size-4" /></Link></Button>} />
+    <section className="landing-hero" aria-labelledby="hero-title">
+      <div className="landing-copy">
+        <div className="hero-kicker"><span className="hero-kicker-mark" aria-hidden="true" /> ENSURE <span className="hero-slash">/</span> RELEASE INFRASTRUCTURE <span className="hero-kicker-rule" /></div>
+        <h1 id="hero-title"><span className="hero-line">Ship with proof.</span><span className="hero-line hero-line-soft">Stay in control.</span></h1>
+        <p className="hero-description">Deploy the site. Pin the exact bytes. Let the ENS owner decide what goes live.</p>
+        <div className="hero-actions">
+          <Button asChild><Link to="/verify"><Fingerprint aria-hidden="true" className="size-4" /> Verify production <ArrowRight aria-hidden="true" className="size-4" /></Link></Button>
+          <Button asChild variant="secondary"><Link to="/releases">Explore releases <ArrowUpRight aria-hidden="true" className="size-4" /></Link></Button>
+        </div>
+        <div className="hero-meta"><span><span className="hero-meta-dot" /> ENSv2 · SEPOLIA</span><span className="hero-meta-divider" /><span className="font-mono">{deployment.projectName}</span></div>
+      </div>
+      <div className="hero-visual"><ReleaseFlow /></div>
+      <div className="hero-index" aria-hidden="true"><span>01</span><span className="hero-index-line" /><span>RELEASE ASSURANCE</span></div>
+    </section>
 
     {(prod.error || verificationQuery.error) && <div role="alert" className="rounded-2xl border border-amber-300/15 bg-amber-300/[0.045] px-4 py-3 text-xs leading-5 text-amber-100/80"><TriangleAlert aria-hidden="true" className="mr-2 inline size-4" />The production data could not be fully loaded: {(verificationQuery.error ?? prod.error) instanceof Error ? (verificationQuery.error ?? prod.error)?.message : "Sepolia read failed"}</div>}
 
-    <div className="grid gap-4 xl:grid-cols-[1.25fr_.75fr]">
+    <div className="grid gap-4">
       <Reveal>
         <Card className="production-card h-full overflow-hidden">
           <div aria-hidden="true" className="production-glow" />
@@ -72,7 +84,6 @@ export function DashboardPage() {
           </CardContent>
         </Card>
       </Reveal>
-      <Reveal delay={0.07}><ReleaseFlow /></Reveal>
     </div>
 
     <div className="grid gap-4 lg:grid-cols-[.95fr_1.05fr]">
