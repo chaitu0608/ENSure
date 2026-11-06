@@ -46,6 +46,7 @@ jobs:
           CI_PRIVATE_KEY: ${{ secrets.CI_PRIVATE_KEY }}
           # Prefer a repo/org Variable (Settings → Variables). Falls back empty so the script fails closed.
           SEPOLIA_RPC_URL: ${{ vars.SEPOLIA_RPC_URL }}
+          IPFS_GATEWAYS: ${{ vars.IPFS_GATEWAYS }}
           GITHUB_SHA: ${{ github.sha }}
         run: corepack pnpm exec tsx scripts/ci-publish-preview.ts
 
