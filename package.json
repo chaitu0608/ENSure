@@ -9,6 +9,7 @@
     "typecheck": "tsc --noEmit",
     "server": "tsx --env-file-if-exists=.env server/src/index.ts",
     "setup-ens": "tsx --env-file-if-exists=.env scripts/setup-ens.ts",
+    "arkiv:smoke": "tsx --env-file-if-exists=.env arkiv/scripts/smoke-test.ts",
     "ensure": "tsx --env-file-if-exists=.env cli/src/index.ts"
   },
   "dependencies": {

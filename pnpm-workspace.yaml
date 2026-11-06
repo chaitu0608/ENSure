@@ -1,5 +1,6 @@
 packages:
   - core
+  - arkiv
   - server
   - cli
   - site

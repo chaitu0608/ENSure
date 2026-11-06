@@ -9,6 +9,7 @@ ENSure deploys websites to ENS, with ENS Lifeboat (verification and recovery) on
 | [BUILD_SPEC.md](./BUILD_SPEC.md) | How to build each component, in order. Wins on implementation |
 | [TECH_AND_DEMO.md](./TECH_AND_DEMO.md) | Tool per feature, language decision, demo script. Wins on tool choice |
 | [REFERENCE_ARCHITECTURE.md](./REFERENCE_ARCHITECTURE.md) | History: how the earlier deploy platform worked, and its mistakes |
+| [ARKIV_PROGRESS.md](./ARKIV_PROGRESS.md) | Arkiv dependency map, schema, integrations, and step-by-step progress |
 
 **State:** the base feature's backend is built and tested on a local Sepolia fork: API, deploys, names, CLI, bot, deploy log. Nothing is deployed live. The website pages, the verifier and the release controller's tests are still to do. Run steps are in the [README](../README.md).
 
