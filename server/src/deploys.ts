@@ -13,6 +13,7 @@ import { build, latestSha } from "./builder";
 import { sql } from "./db";
 import { installationToken } from "./github";
 import { ipnsPublish } from "./ipns";
+import { candidateEventId, recordReleaseEvent } from "@ensure/arkiv";
 
 export const chain = () => {
   const transport = http(process.env.SEPOLIA_RPC_URL);
@@ -143,6 +144,25 @@ async function runStages(d: any, log: (l: string) => void, stage: (s: string) =>
       commitDigest: pinned.commitDigest, contenthash: pinned.contenthash, name: target, txHash: result.txHash, logTxHash: result.logTxHash,
       ipns, prodWriteBlocked: result.blocked, url: openUrl(pinned.siteCid),
     };
+    if (p.mode === "custom") {
+      try {
+        const recorded = await recordReleaseEvent({
+          projectNode: namehash(p.name),
+          eventId: candidateEventId(p.id, d.id, sha),
+          eventType: "CANDIDATE",
+          commitSha: sha,
+          manifestCid: pinned.manifestCid,
+          manifestDigest: pinned.manifestDigest,
+          siteCid: pinned.siteCid,
+          commitDigest: pinned.commitDigest,
+          sourceTx: result.txHash,
+          sourceChain: 11155111,
+        });
+        log(`Arkiv candidate: ${recorded.entityKey}${"txHash" in recorded ? ` (${recorded.txHash})` : " (already recorded)"}`);
+      } catch (error) {
+        log(`Arkiv candidate sync skipped: ${(error as Error).message.split("\n")[0]}`);
+      }
+    }
     return { status: p.mode === "quick" ? "live" : "preview", receipt };
   } finally {
     await built.cleanup();

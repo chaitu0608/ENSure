@@ -1,8 +1,9 @@
 // Connected repos and their names.
 import { Hono } from "hono";
-import type { Address } from "viem";
+import { isAddress, namehash, type Address, type Hex } from "viem";
 import { z } from "zod";
-import { RESOLVER_ROLES, findResolver, resolverAbi, dnsEncode } from "@ensure/core/ens";
+import { RESOLVER_ROLES, findResolver, readText, resolverAbi, dnsEncode } from "@ensure/core/ens";
+import { recordControllerEventFromTransaction } from "@ensure/arkiv";
 import { publishName } from "@ensure/core/pipeline";
 import type { Project } from "@ensure/core/api";
 import { requireUser, type Env } from "./auth";
@@ -83,6 +84,24 @@ projects.get("/:id/deploys", async (c) => {
   if (!p) return c.json({ error: "Project not found" }, 404);
   const rows = await sql`SELECT * FROM deploys WHERE project_id = ${p.id} ORDER BY created_at DESC LIMIT 50`;
   return c.json({ deploys: rows.map((d) => ({ id: d.id, commitSha: d.commit_sha, status: d.status, error: d.error, receipt: d.receipt, createdAt: d.created_at })) });
+});
+
+/** Mirrors an already executed protected release action after validating it against Sepolia. */
+projects.post("/:id/arkiv-events", async (c) => {
+  const p = await owned(c.req.param("id") as string, c.get("user").id);
+  if (!p) return c.json({ error: "Project not found" }, 404);
+  if (p.mode !== "custom") return c.json({ error: "Arkiv controller events require a protected project" }, 409);
+  const { transactionHash } = z.object({ transactionHash: z.string().regex(/^0x[0-9a-fA-F]{64}$/) }).parse(await c.req.json());
+  const source = chain();
+  const controller = await readText(source.public, `prod.${p.name}`, "ensure.controller").catch(() => "");
+  if (!isAddress(controller)) return c.json({ error: "No valid ENSure controller is set in prod.ensure.controller" }, 409);
+  const result = await recordControllerEventFromTransaction({
+    projectName: p.name,
+    projectNode: namehash(p.name),
+    controllerAddress: controller,
+    transactionHash: transactionHash as Hex,
+  });
+  return c.json({ ok: true, entityKey: result.entityKey, duplicate: result.duplicate, arkivTxHash: "txHash" in result ? result.txHash : undefined });
 });
 
 /** Quick names only. A protected name rolls back through its owner, not this server. */
