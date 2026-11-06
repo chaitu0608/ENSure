@@ -1,0 +1,10 @@
+{
+  "name": "@ensure/core",
+  "private": true,
+  "type": "module",
+  "exports": {
+    "./manifest": "./src/manifest.ts",
+    "./ens": "./src/ens.ts",
+    "./verify": "./src/verify.ts"
+  }
+}
