@@ -226,7 +226,7 @@ Gateway or RPC failure never appears as MATCH. A normal HTTP gateway can serve b
 ## 11. Suggested project layout
 
 ~~~text
-ENSure-v2/
+ENSure/
 ├── apps/web/                        owner dashboard and Verify page
 ├── contracts/src/                   release controller
 ├── contracts/test/                  focused contract tests
