@@ -6,7 +6,7 @@ ENSure lets a team publish a static website under an ENSv2 name and lets visitor
 
 **One-line pitch:** “Before you connect your wallet, check that this ENS website is still serving the build its owner approved.”
 
-This plan is the product handoff for implementation. [EXECUTION_PLAN.md](./EXECUTION_PLAN.md) contains the detailed build sequence and contract handoff.
+This plan is the product handoff for implementation. [context.md](./context.md) records the team's current state and agreed decisions. [EXECUTION_PLAN.md](./EXECUTION_PLAN.md) contains the detailed build sequence and contract handoff.
 
 ## The problem
 
