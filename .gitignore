@@ -9,6 +9,7 @@ out/
 broadcast/
 cache/
 artifacts/
+*.tsbuildinfo
 
 # Local service credentials, never committed
 .pinata.env

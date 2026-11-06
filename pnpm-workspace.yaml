@@ -4,3 +4,4 @@ packages:
   - server
   - cli
   - site
+  - web

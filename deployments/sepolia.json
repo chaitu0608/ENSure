@@ -1,6 +1,15 @@
 {
   "chainId": 11155111,
   "mode": "sepolia",
+  "protocol": {
+    "rootRegistry": "0xb458d6a3a77919449d03e7a6903c26827c1ec43f",
+    "ethRegistry": "0xd4ebcbbdf463c9c45784603db0ddd499bc44a8b4",
+    "universalResolver": "0xeEeEEEeE14D718C2B47D9923Deab1335E144EeEe",
+    "universalHelper": "0xd453e5bdb62cc3bea84341b1e306319c8ffd7dfe",
+    "verifiableFactory": "0xda70306c98e97ece36f997a21368e53298572991",
+    "registryImplementation": "0x9bd8a88719068d09ecee662f36c0e3856708366a",
+    "resolverImplementation": "0x115eb53f0c60696633855f90b138178fb40b2b2c"
+  },
   "sourceCommit": "07e55a056f5b6a9c90119f501bdd05714e67dddd",
   "label": "ensure",
   "projectName": "ensure.eth",
