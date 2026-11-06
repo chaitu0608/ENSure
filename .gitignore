@@ -9,3 +9,7 @@ out/
 broadcast/
 cache/
 artifacts/
+
+# Local service credentials, never committed
+.pinata.env
+server.env
