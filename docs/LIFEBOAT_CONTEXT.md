@@ -1,21 +1,21 @@
-# ENS Lifeboat (repo: ENSure): Shared Context
+# ENSure: Shared Context
 
 **Updated:** 2026-11-06
-**Canonical project:** ENS Lifeboat, built in the ENSure repository
-**Current state:** Product and implementation planning are committed. The application and contract are not implemented or deployed yet.
+**Canonical project:** ENSure. A platform for deploying websites to ENS, with ENS Lifeboat (verification and recovery) built on top
+**Current state:** The base deploy backend is built and tested on a local Sepolia fork. Nothing is deployed live. The website and the Lifeboat layer are next.
 
-This is the single starting point for every teammate and work session. Implementation details are in [BUILD_SPEC.md](./BUILD_SPEC.md).
+This is the single starting point for every teammate and work session. System design is in [ARCHITECTURE.md](./ARCHITECTURE.md), and build steps are in [BUILD_SPEC.md](./BUILD_SPEC.md).
 
 ---
 
 ## 1. Pitch
 
-**One line:** ENS Lifeboat lets a project publish a verified website release through ENSv2 and gives its community a way to recover the site if the primary publishing path is compromised or unavailable.
+**One line:** ENSure deploys a website from a repo to an ENS name in one click, then lets a project protect it: separate publishing roles, owner approval, public verification, and recovery if the publishing path is compromised or unavailable.
 
 **Visitor-facing line:** "Before you connect your wallet, check that this ENS website is still serving the build its owner approved."
 
 **Defensible positioning:**
-> GitHub tells the team what code changed, and hosting platforms manage deployments. ENS Lifeboat makes the ENS publishing authority and recovery path explicit, then lets users check whether a known project name points to the recorded release.
+> GitHub tells the team what code changed, and ENSure deploys it. ENS Lifeboat makes the ENS publishing authority and recovery path explicit, then lets users check whether a known project name points to the recorded release.
 
 This is bigger than "deploy a site to IPFS". A project registers a release identity in ENSv2, ties each release to evidence, separates routine publishing from approval and recovery, and lets visitors verify the result.
 
@@ -32,15 +32,23 @@ No idea guarantees a top-10 result. Competitiveness comes from a working end-to-
 
 ## 3. What the product does
 
-1. Sets up a project publishing identity under ENSv2 (parent, preview, prod, recovery).
-2. Builds a static site from an exact commit and pins it to IPFS through Pinata.
-3. Creates a **Release Manifest / Release Passport** binding commit, build run, file hashes, site CID, and approval.
-4. Publishes candidates to a **preview** ENS name using a preview-only key.
-5. Lets the owner approve one candidate for **production** with a wallet or Safe transaction.
-6. Lets a visitor verify production without a wallet: ENS → controller → manifest → files.
-7. Provides a **recovery path**: restore a previously approved release when routine publishing is compromised or disabled.
+**Base: deploy to ENS**
+1. Log in with GitHub or Google, connect a repo, or paste a repo URL.
+2. Deploy from the website, CLI, Telegram bot, or automatically on push, with live build logs.
+3. Detects the framework and package manager, and builds in a sandbox with no secrets.
+4. Pins the site to IPFS through Pinata.
+5. Publishes under an ENS name: an auto-assigned quick name, or the user's own name, proved by wallet signature.
+6. Keeps a deploy history on-chain, config in ENS text records, optional IPNS for previews, and optional access policies.
 
-A CI success creates a candidate. It never publishes to production.
+**Lifeboat: on top of the base**
+7. Sets up a protected identity under ENSv2 (parent, preview, prod, recovery).
+8. Creates a **Release Manifest / Release Passport** binding commit, build run, file hashes, site CID, and approval.
+9. Publishes candidates to a **preview** ENS name using a preview-only key.
+10. Lets the owner approve one candidate for **production** with a wallet or Safe transaction.
+11. Lets a visitor verify production without a wallet: ENS → controller → manifest → files.
+12. Provides a **recovery path**: restore a previously approved release when routine publishing is compromised or disabled.
+
+A successful build creates a candidate. On a protected name, it never publishes to production. Quick names go straight live, make no approval claim, and Verify reports them as UNPROTECTED.
 
 ## 4. Why ENSv2 is essential
 
@@ -50,7 +58,7 @@ ENS is the project's **publishing identity and permission system**, not a displa
 | --- | --- |
 | Hierarchical / Permissioned Registry | Project owns its namespace, with `preview` and `prod` as ERC-1155 name tokens held by the owner |
 | Permissioned Resolver (separate instances) | Preview and production have separate writer boundaries |
-| Enhanced Access Control | CI writes preview only; controller writes production; owner administers; roles are revocable |
+| Enhanced Access Control | Publisher writes preview only; controller writes production; owner administers; roles are revocable |
 | Contenthash (ENSIP-7) | Public name points at the approved IPFS site CID |
 | Text records | `ensure.manifest`, `ensure.release` carry evidence pointers |
 | Resolver multicall | Contenthash and evidence change atomically |
@@ -64,8 +72,8 @@ Deferred ENSv2 features: record linking, wildcard resolution, per-release subnam
 
 | Actor | Can do | Cannot do |
 | --- | --- | --- |
-| **CI publisher** (preview-only key) | Write preview contenthash and preview manifest text | Write production, administer roles, link, or upgrade |
-| **Owner Safe** | Promote, roll back, administer registry pointers, roles, and resolver upgrades; revoke CI | n/a (root of trust) |
+| **Server publisher** (one key, no production rights) | Write preview contenthash and manifest text on names it was granted; write quick names; log deploys | Write any production resolver, administer roles, link, or upgrade |
+| **Owner Safe** | Promote, roll back, administer registry pointers, roles, and resolver upgrades; revoke the publisher | n/a (root of trust) |
 | **ENSureReleaseController** | Write production contenthash plus `ensure.manifest` and `ensure.release` | Anything else; checks registry pointer first |
 | **Recovery authority** (Lifeboat addition: separate Safe or multisig) | Restore a *previously approved* release with a recorded reason | Promote a new, never-approved release; administer roles |
 | **Visitor** | Read and verify | n/a |
@@ -74,46 +82,55 @@ The owner Safe stays the root of trust. A change that bypasses the controller mu
 
 ## 6. Scope
 
-### Agreed MVP
+**In scope: everything.** Every feature of the earlier deploy platform is rebuilt here, plus Lifeboat. The full list is in [ARCHITECTURE.md section 3](./ARCHITECTURE.md#3-every-feature-and-where-it-goes).
 
 | Area | Decision |
 | --- | --- |
-| Build source | One team-controlled GitHub project, protected `main` |
-| Build runner | GitHub Actions building the exact triggering SHA |
+| Build source | Any GitHub repo: connected, or by URL, with branch and subfolder |
+| Build runner | Docker sandbox on our server, with no secrets. A GitHub Actions template as an alternative |
+| Commit | The exact pushed SHA |
 | Storage | Pinata pins site directory and manifest on IPFS |
-| Naming | ENSv2 parent with `preview` and `prod` entries |
+| Naming | ENSv2 quick names under a platform parent; protected projects get `preview` and `prod` tokens |
 | Permissions | Separate Permissioned Resolvers for preview and production |
 | Approval | Owner wallet or Safe calls `ENSureReleaseController` |
 | Recovery | Separate recovery authority restores an approved release |
-| Public check | Verify page reads ENSv2, controller, manifest, and files |
-| First network | Sepolia, after confirming live V2 deployment and ABI |
+| Public check | Verify page and CLI read ENSv2, controller, manifest, and files, never our server |
+| Clients | Website, CLI, Telegram bot |
+| Network | Sepolia, after confirming live V2 deployment and ABI |
 
 ### Optional stretch (only if core works)
 
 - **Arkiv:** store Release Passports as queryable entities, with a user-facing release-history view or verifier lookup that **reads** Arkiv. Write-only logging does not count. If included, supply schema, queries, and judging docs.
 - Gateway latency measurement and resilient retrieval.
+- Multiple pinning providers.
 
-### Cut unless the core works first
+### Not building
 
-Swarm replication, IPNS, World ID, AI scanning, token gating, governance voting, multiple build systems, arbitrary public repo builds, automatic incident attribution.
+Swarm replication, World ID, AI code scanning, governance voting, automatic incident attribution, DeFi record templates.
 
-The project is independent. Do not add names or links from historical inspiration to code, docs, issues, or demo copy.
+The project is independent. No code is copied from earlier work, and historical inspiration isn't named in code, issues, or demo copy.
 
 ## 7. End-to-end flows
 
-### A. Project setup
-1. Maintainer connects a wallet and chooses the ENSv2 parent name.
-2. Create the child Permissioned Registry and register `preview` and `prod` as tokens, each with its own resolver.
-3. Assign roles (Section 5). The UI shows exactly which account can do each action.
+### A. Deploy a site (the base)
+1. Log in, then pick a repo or paste its URL.
+2. Choose a quick name, or a verified name of your own.
+3. Deploy. Logs stream live while the server builds in a sandbox and pins to IPFS.
+4. Quick name: the site is live. Protected name: it's on preview, waiting for the owner.
 
-### B. Publish a release
+### A2. Set up a protected project
+1. Maintainer connects a wallet and proves ownership of the ENSv2 parent name.
+2. Create the child Permissioned Registry and register `preview` and `prod` as tokens, each with its own resolver.
+3. Deploy the controller and assign roles (Section 5). The UI shows exactly which account can do each action.
+
+### B. Publish a protected release
 ~~~text
-1. Developer pushes a commit to protected main.
-2. CI checks out that exact SHA and builds static files.
-3. CI hashes every file and creates a canonical manifest.
+1. Developer pushes a commit, or clicks Deploy.
+2. The server fetches that exact SHA and builds static files with no secrets.
+3. It hashes every file and creates a canonical manifest.
 4. Pinata pins the site directory → site CID.
-5. CI adds site CID to the manifest, pins it → manifest CID.
-6. CI retrieves both artifacts, then updates preview ENS only.
+5. It adds site CID to the manifest, pins it → manifest CID.
+6. It retrieves both artifacts, then updates preview ENS only.
 7. Owner reviews the candidate and signs Promote.
 8. Controller updates production contenthash and evidence records atomically.
 9. Visitor verifies production ENS → controller → manifest → file hashes.
@@ -125,7 +142,7 @@ Visitor starts from the project's **known ENS name** (not an arbitrary name from
 
 ### D. Recover the site
 1. The normal publishing path is lost, compromised, or disabled.
-2. Owner revokes the CI role (or disables the path).
+2. Owner revokes the publisher role (or disables the path).
 3. Recovery authority reviews release history and selects a previously approved release.
 4. Controller restores all three production records in one multicall, with a reason recorded in the event.
 5. Visitor verifies the restored site against its manifest.
@@ -164,7 +181,7 @@ Rules:
 - Exact triggering SHA; sorted, normalized relative paths; SHA-256 per file.
 - `manifestDigest` = keccak256 of canonical manifest bytes.
 - Store full CID strings; a CID is not a bytes32.
-- **One shared canonicalization package** used by both CI and Verify.
+- **One shared canonicalization package** used by the server, CLI, and Verify.
 - Public records contain no secrets or private user data.
 - The manifest ties an artifact to a commit and run. It does not prove a reproducible build.
 
@@ -196,24 +213,25 @@ Behavior:
 
 After deploying, record the address, chain ID, tx hash, compiler version, and verified source location. Grant the controller only the production contenthash role and key-scoped text setter roles.
 
-## 10. CI pipeline
+## 10. Build and publish pipeline
 
-1. Pull requests build without Pinata or wallet credentials (forked PRs never reach the publish job).
-2. Push to protected `main` checks out the exact SHA; install from the committed lockfile; build one known output directory.
-3. Reject empty output, symlinks, secret-like files, and paths outside the output root.
-4. Build the sorted file list and hash each file.
-5. Pin the site, add its CID to the manifest, compute `manifestDigest`, pin the manifest.
-6. Retrieve the manifest and site entrypoint by CID before touching ENS.
-7. Encode the contenthash; use the preview-only key to update preview contenthash and manifest text.
-8. Confirm the commit is still the latest `main` commit before moving preview (so a slow old job cannot overwrite a newer preview).
-9. Save a receipt: commit SHA, run URL, site CID, manifest CID, digest, preview tx hash.
+1. A deploy starts from the website, CLI, bot, or a verified push webhook.
+2. Fetch the exact SHA with a short-lived token, in a container that exits before user code runs.
+3. Build in a separate container with no secrets, from the committed lockfile.
+4. Reject empty output, symlinks, secret-like files, and paths outside the output root.
+5. Build the sorted file list and hash each file.
+6. Pin the site, add its CID to the manifest, compute `manifestDigest`, pin the manifest.
+7. Retrieve the manifest and site entrypoint by CID before touching ENS.
+8. Confirm the commit is still the latest on its branch (so a slow old job cannot overwrite a newer preview).
+9. Encode the contenthash and write the preview, or the quick name.
+10. Save a receipt: commit SHA, build log, site CID, manifest CID, digest, tx hash.
 
-Credentials: Pinata token and preview-only key live in a protected GitHub Environment for the publish job. The owner Safe and recovery keys never enter CI. Protect workflow-file changes.
+Credentials: the Pinata token and publisher key live on the server. Builds never see them. Owner and recovery keys never reach the server or CI. Teams preferring their own CI can use the GitHub Actions template with a preview-only key.
 
 ## 11. Verify page and result states
 
 No wallet needed. Steps:
-1. Resolve the name via the ENSv2 Universal Resolver; capture the resolver address.
+1. Resolve the name via the ENSv2 Universal Resolver; capture the resolver address. Find the controller from `ensure.controller`, and confirm it belongs to the name's owner.
 2. Read contenthash, `ensure.manifest`, `ensure.release`.
 3. Compare resolver with the controller's configured resolver and the registry's `prod` entry.
 4. Read `currentReleaseId` and release data from the controller.
@@ -228,22 +246,24 @@ No wallet needed. Steps:
 | **MATCH** | Every required comparison completed and agreed |
 | **MISMATCH** | Data was available but something differed; identify exactly which comparison failed and show the last approved release |
 | **UNAVAILABLE** | RPC, ENS, manifest, or IPFS failed before verification finished; never green |
+| **UNPROTECTED** | Files match the manifest, but the name has no controller, so nobody approved this release; never green |
 
-Verify checks release consistency and the bytes it fetched. It does not declare code safe.
+Verify checks release consistency and the bytes it fetched. It does not declare code safe. It reads only the chain and public gateways, never our server.
 
 ## 12. The memorable demo: live "site rescue" drill
 
 Use a test ENS name and mark the scenario as a controlled demo. Never simulate an attack on a third party. All reads and transactions are live; hard-coded success values fail the goal.
 
-1. Push a change; show commit, build run, and Pinata site and manifest CIDs.
-2. CI updates **preview**; the same key's **production** write **reverts**.
-3. Owner promotes; Verify shows **MATCH**.
-4. Write a different contenthash directly to the production resolver, bypassing the controller; Verify shows **MISMATCH**.
-5. Owner revokes the CI role (normal publishing path off).
-6. Recovery authority restores the previous approved release with a reason.
-7. Verify shows **MATCH** again; history shows promotion, mismatch window, and recovery.
+1. Log in, pick a repo, click Deploy; show live logs and a quick name going live. Verify shows **UNPROTECTED**.
+2. Push a change to a protected project; show the deploy of that exact commit, and the site and manifest CIDs.
+3. The server updates **preview**; the same key's **production** write **reverts**.
+4. Owner promotes; Verify shows **MATCH**.
+5. Write a different contenthash directly to the production resolver, bypassing the controller; Verify shows **MISMATCH**.
+6. Owner revokes the publisher role (normal publishing path off).
+7. Recovery authority restores the previous approved release with a reason.
+8. Verify shows **MATCH** again; history shows promotion, mismatch window, and recovery.
 
-Three-minute version: candidate → preview → blocked production write → promote → MATCH → tamper → MISMATCH → recover → MATCH.
+Three-minute version: deploy → live → push → preview → blocked production write → promote → MATCH → tamper → MISMATCH → recover → MATCH. The full script is in [TECH_AND_DEMO.md](./TECH_AND_DEMO.md#5-demo).
 
 ## 13. Network uncertainty (deployment gate)
 
@@ -251,39 +271,36 @@ Prize wording says ENSv2 is live on mainnet. The [ENS deployments page](https://
 
 ## 14. Build order and status
 
-Built one component at a time, in product-flow order. Interfaces and done-conditions are in [BUILD_SPEC.md section 4](./BUILD_SPEC.md#4-build-plan).
+Built one component at a time. Details are in [BUILD_SPEC.md section 4](./BUILD_SPEC.md#4-build-plan).
 
-| # | Component | Outcome | Status |
-| --- | --- | --- | --- |
-| 1 | Manifest | Build output → canonical manifest and digests | Not started |
-| 2 | ENS library | Contenthash encoding, role constants, record reads | Not started |
-| 3 | ENS setup | Parent, child registry, `preview` and `prod` tokens, two resolvers, roles; preview key writes preview and **reverts on prod** | Not started |
-| 4 | Pin | Site and manifest pinned, fetched back by CID | Not started |
-| 5 | Preview publish | CIDs written to preview ENS and read back | Not started |
-| 6 | CI | Every push to `main` produces a preview candidate | Not started |
-| 7 | Controller | Promote, rollback, recover; atomic multicall; deployed and source-verified; minimal roles | Not started |
-| 8 | Verifier | Real MATCH / MISMATCH / UNAVAILABLE, in library and CLI | Not started |
-| 9 | Verify page | Verifier in the browser | Not started |
-| 10 | Owner page | Review, Promote, Rollback | Not started |
-| 11 | Recover page | Restore an approved release with a reason | Not started |
-| 12 | Demo and submit | Rescue drill runs live; public repo, README, limitations | Not started |
-| Stretch | Arkiv passports with a real read feature (after 10) | | Not started |
+| # | Component | Status |
+| --- | --- | --- |
+| C1 to C3 | **Foundation:** manifest, ENS library, ENS setup | Built, tested on a fork |
+| C4 to C10 | **Base:** database and API, login, GitHub, builder, pin, deploy pipeline, names | Built, tested on a fork with stubbed Pinata and GitHub |
+| C11 | **Dashboard pages** | Not started (being built by hand) |
+| C12 to C16 | **Lifeboat:** controller, verifier, Verify, Owner and Recover pages | Controller compiles, no tests |
+| C17 to C21 | **Rest of the base:** CLI, deploy log and config, Telegram bot, IPNS, access control | Built. Bot's live connection not exercised |
+| C22, C23 | Landing page, CI | Not started |
+| C24 | Demo and submit | Not started |
+| Stretch | Arkiv passports with a real read feature (after C15) | Not started |
 
-Components 1 and 2 are pure code and can start now. Component 3 is the first live step; it gates the preview publish and the controller deploy.
+Next: a live run with real keys, then C12. C1 to C16 are the complete demo.
 
 ### Layout
 ~~~text
 ENSure/
-├── contracts/           release controller, tests, deploy script
-├── core/                manifest, ENS, verifier (shared)
-├── scripts/             setup-ens, release, verify
-├── site/                the static site being released
-├── web/                 Verify, Owner, Recover
-├── deployments/         addresses
+├── contracts/   release controller, deploy log, access control
+├── core/        manifest, ENS, setup, pipeline, verifier, API types (shared)
+├── server/      API, deploy worker, Docker builder, Telegram bot
+├── cli/         terminal client
+├── web/         landing, dashboard, Verify, Owner, Recover
+├── site/        the demo site that gets deployed
+├── scripts/     platform setup
+├── deployments/ addresses
 ├── docs/
-├── .github/workflows/release.yml
+└── .github/workflows/
 ~~~
-Stack: Solidity + Foundry; TypeScript + React with wallet integration; no app database in v1.
+Stack: Solidity + Foundry; TypeScript on Node with Postgres and Docker; React with wallet integration.
 
 ## 15. Track fit
 
@@ -302,18 +319,20 @@ Different tracks have different requirements. Do not add Arkiv to merely mention
 - IPFS retrieval requires files to stay pinned; one pin provider or gateway can be slow or down (shown as UNAVAILABLE).
 - Recovery needs the recovery authority and earlier release files to remain available.
 - Recovery protects against loss of the publishing path, not compromise of the owner Safe.
-- Onchain records do not make every part of the service decentralized.
+- Onchain records do not make every part of the service decentralized. Deploys go through our server; Verify does not.
+- A compromised server can change previews and quick names, but not a protected production name.
+- Access policies gate the interface only. Files on IPFS stay public.
 
 Preserve the distinction between a **verified artifact** and a **safe artifact** in all product copy.
 
 ## 17. Team rules
 
 - This repository is the only project codebase.
-- No production, owner, or recovery keys in CI, source, logs, or chat.
-- Keep forked-PR builds separate from the trusted publish job.
+- No owner or recovery keys on the server, or in CI, source, logs, or chat.
+- Builds never see secrets. Keep forked-PR builds separate from any trusted publish job.
 - Pin ENSv2 ABI and addresses before contract integration.
-- Record a release receipt: full CIDs, commit SHA, workflow URL, manifest digest, ENS tx hashes.
-- Keep the MVP to one team-controlled static site and one production channel.
+- Record a release receipt: full CIDs, commit SHA, build link, manifest digest, ENS tx hashes.
+- One production channel per project.
 - Cut stretch items before the core demo is at risk.
 
 ## 18. Submission requirements
@@ -322,18 +341,19 @@ Functions on ENSv2 mainnet or Sepolia; ENSv2 is core to the flow; live demo; acc
 
 ## 19. Decisions still needed
 
-1. Final ENS parent name, owner Safe, and recovery authority account.
-2. Static demo site, build command, and output folder.
+1. Final platform name, demo project name, owner Safe, and recovery authority account.
+2. Demo repo.
 3. Sponsor-confirmed network, deployment addresses, and ABI version.
 4. Whether the sponsor objects to registered tokens for preview/prod on that deployment.
-5. RPC provider and IPFS retrieval route for public verification.
-6. Whether Arkiv is attempted (only after component 10).
+5. RPC provider, IPFS retrieval route, and server host.
+6. Whether Arkiv is attempted (only after C15).
+7. Confirm: quick names deploy straight live, protected names go to preview first.
 
 These are configuration decisions and do not change the agreed flow.
 
 ## 20. 30-second judge pitch
 
-> "ENS Lifeboat is a recovery and verification system for Web3 websites. A project publishes through ENSv2 with separate roles for preview publishing, production approval, and recovery. Each release is tied to its commit, build hash, and IPFS CID in a manifest. Visitors verify a site from the project's known ENS name, and maintainers can restore production to a previously approved release. In our demo, the CI key is blocked from production, the normal path is disabled, and the recovery authority restores a verified release. ENS controls publication and IPFS serves the files."
+> "ENSure deploys a website from a repo to an ENS name in one click. ENS Lifeboat, on top of it, is a recovery and verification system. A project publishes through ENSv2 with separate roles for preview publishing, production approval, and recovery. Each release is tied to its commit, build hash, and IPFS CID in a manifest. Visitors verify a site from the project's known ENS name, and maintainers can restore production to a previously approved release. In our demo, the deploy server's key is blocked from production, the normal path is disabled, and the recovery authority restores a verified release. ENS controls publication and IPFS serves the files."
 
 ## 21. References
 

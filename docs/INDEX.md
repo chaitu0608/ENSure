@@ -1,11 +1,15 @@
 # ENSure docs
 
+ENSure deploys websites to ENS, with ENS Lifeboat (verification and recovery) on top. All of it is built in this repo.
+
 | File | Use |
 | --- | --- |
 | [LIFEBOAT_CONTEXT.md](./LIFEBOAT_CONTEXT.md) | The product. Wins on scope |
-| [BUILD_SPEC.md](./BUILD_SPEC.md) | How to build it. Wins on implementation |
-| [REFERENCE_ARCHITECTURE.md](./REFERENCE_ARCHITECTURE.md) | Background: an existing deploy platform, and what not to copy |
+| [ARCHITECTURE.md](./ARCHITECTURE.md) | System design, every feature, keys, API, data |
+| [BUILD_SPEC.md](./BUILD_SPEC.md) | How to build each component, in order. Wins on implementation |
+| [TECH_AND_DEMO.md](./TECH_AND_DEMO.md) | Tool per feature, language decision, demo script. Wins on tool choice |
+| [REFERENCE_ARCHITECTURE.md](./REFERENCE_ARCHITECTURE.md) | History: how the earlier deploy platform worked, and its mistakes |
 
-**State:** nothing is deployed. `contracts/src/ENSureReleaseController.sol` compiles but has no tests. The rest of the source files are empty.
+**State:** the base feature's backend is built and tested on a local Sepolia fork: API, deploys, names, CLI, bot, deploy log. Nothing is deployed live. The website pages, the verifier and the release controller's tests are still to do. Run steps are in the [README](../README.md).
 
-**First task:** components 1 and 2 (pure code), then [component 3](./BUILD_SPEC.md#7-component-3-ens-setup), the first live step. The build order is in [BUILD_SPEC.md section 4](./BUILD_SPEC.md#4-build-plan).
+**Next:** run it live (see "Before it's live" in the README), then [C12](./BUILD_SPEC.md#c12-controller) onward. The full order is in [BUILD_SPEC.md section 4](./BUILD_SPEC.md#4-build-plan).

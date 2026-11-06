@@ -1,10 +1,10 @@
 # Reference architecture: a decentralized deploy platform
 
-This is a reverse-engineered description of an existing "Vercel for IPFS and ENS" codebase, called **the reference system** here. Read it to learn how such a platform fits together, what actually works, and which mistakes ENS Lifeboat must not repeat.
+This is a reverse-engineered description of an earlier "Vercel for IPFS and ENS" codebase, called **the reference system** here. ENSure rebuilds all its features ([list](./ARCHITECTURE.md#3-every-feature-and-where-it-goes)). This file records how it worked and which mistakes not to repeat. That codebase is no longer needed to build ENSure, so file paths below are historical.
 
 **Method.** Findings come from reading all source, config and contract files for architecture and data flow, then for observable behaviour and edge cases. The larger dashboard pages were read in part. **Nothing was built or run**, so "would fail" below means the code reads that way, not that a failure was observed. Pinata behaviour comes from its docs as read on 2026-11-06.
 
-**Licence warning.** The reference system is GPLv3. Copying its code into ENSure can bring GPL obligations with it. Use this document for ideas and write your own implementation.
+**Licence.** The reference system is GPLv3. Write ENSure's code fresh rather than copying, so it brings no GPL obligations.
 
 ---
 
@@ -232,35 +232,24 @@ GitHub → `/api/github/webhook` → look up the connection → verify HMAC → 
 
 ### The trap most relevant to you
 
-Step 5 of the Node flow shows a verification gap that ENS Lifeboat could inherit. Hashing files proves nothing about code a page loads from elsewhere. If the published HTML has `<script src="https://…">` or an absolute asset prefix, all hashes can MATCH while the visitor runs unverified code. See [BUILD_SPEC.md component 8](./BUILD_SPEC.md#12-component-8-verifier).
+Step 5 of the Node flow shows a verification gap that ENS Lifeboat could inherit. Hashing files proves nothing about code a page loads from elsewhere. If the published HTML has `<script src="https://…">` or an absolute asset prefix, all hashes can MATCH while the visitor runs unverified code. See [BUILD_SPEC.md C13](./BUILD_SPEC.md#c13-verifier).
 
-## 10. What to take, and what not to
+## 10. What carries over
 
-| Idea | Verdict for ENS Lifeboat |
+Features: all of them, listed in [ARCHITECTURE.md section 3](./ARCHITECTURE.md#3-every-feature-and-where-it-goes). Fixes for the problems above: [section 8](./ARCHITECTURE.md#8-fixes-over-the-reference-system).
+
+Implementation ideas worth keeping:
+
+| Idea | Used in |
 | --- | --- |
-| Pipeline as ordered stages with a logger callback | **Take.** Each stage of your scripts should log and fail clearly |
-| Fail fast on missing config | **Take** |
-| Scoped build sandbox | Not needed: GitHub Actions is the runner |
-| `DryRun` flag | **Take**: `--dry-run` skips pin and chain writes |
-| Receipt object at the end of a pipeline | **Take**, extended per your Section 17 |
-| Pending nonce for sequential txs | **Take** if a script sends more than one |
-| One-RPC-call-per-request (`batchMaxCount: 1`), added because of free-tier batch limits | **Take the lesson**: assume public RPCs have batch and log limits |
-| Pinata `pinFileToIPFS` with path-prefixed parts and `cidVersion: 1` (`contracts/scripts/deploy-ipfs.js`) | **Keep as the fallback.** ENS Lifeboat tries the current SDK first |
-| Two backends, OAuth, webhooks, bot, LLM planner, CLI, Postgres | **Skip.** Your plan needs no server |
-| Multi-tenant "any repo" builds | **Skip**, as your plan already says |
-| Registry contracts with free-form domain strings | **Replace** with the ENSv2 registry and resolver plus your controller |
-| IPNS, token gating, DeFi text records | **Skip**, out of scope |
-| Rollback from CLI, off-chain | **Replace** with on-chain `rollback` and `recover` |
-
-## 11. If you did want to rebuild it
-
-In dependency order, with the fixes applied:
-
-1. **Contracts:** one registry keyed by ENS node, write-gated by ENS ownership.
-2. **Pipeline library:** parse → sandboxed build with no secrets → filter → upload with explicit `network` → write → read back → receipt.
-3. **Worker service:** queue with persistent state, not in-memory, and a concurrency limit.
-4. **API:** one backend. OAuth via a GitHub App with short-lived tokens stored server-side, HTTP-only session cookies, verified webhooks.
-5. **Streaming:** one SSE format, defined once and shared with every client.
-6. **Dashboard:** repo picker, log terminal, history, wallet actions via wagmi.
-7. **CLI:** generated from the same API types, so it can't drift.
-8. **Contract tests:** end-to-end with real uploads on a testnet.
+| Pipeline as ordered stages with a logger callback | C9 |
+| Container limits and cache volumes per package manager | C7 |
+| Output detection, and a marker file for the output path | C7 |
+| Failing fast on missing config | C4 |
+| `dryRun` flag | C9 |
+| Receipt at the end of a pipeline | C9 |
+| Streaming over `fetch` with `getReader`, since `EventSource` can't POST or send auth | C11 |
+| Grouping Telegram logs into one edited message | C19 |
+| Assume public RPCs limit batches and log ranges | C13 |
+| `pinFileToIPFS` with path-prefixed parts and `cidVersion: 1` | C8 fallback |
+| `X-Accel-Buffering: no` and a 15-second heartbeat for SSE behind proxies | C9 |

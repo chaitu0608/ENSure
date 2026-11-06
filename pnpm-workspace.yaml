@@ -1,4 +1,5 @@
 packages:
   - core
+  - server
+  - cli
   - site
-  - web

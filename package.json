@@ -1,5 +1,24 @@
 {
   "name": "ensure",
   "private": true,
-  "type": "module"
+  "type": "module",
+  "packageManager": "pnpm@10.20.0",
+  "scripts": {
+    "test": "vitest run --exclude server/test/e2e.test.ts",
+    "e2e": "vitest run server/test/e2e.test.ts",
+    "typecheck": "tsc --noEmit",
+    "server": "tsx --env-file-if-exists=.env server/src/index.ts",
+    "setup-ens": "tsx --env-file-if-exists=.env scripts/setup-ens.ts",
+    "ensure": "tsx --env-file-if-exists=.env cli/src/index.ts"
+  },
+  "dependencies": {
+    "@ensure/core": "workspace:*",
+    "viem": "^2"
+  },
+  "devDependencies": {
+    "@types/node": "^24",
+    "tsx": "^4",
+    "typescript": "^5",
+    "vitest": "^3"
+  }
 }
