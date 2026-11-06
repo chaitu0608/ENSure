@@ -107,6 +107,8 @@ importers:
         specifier: ^13
         version: 13.4.2
 
+  site: {}
+
 packages:
 
   '@adraffy/ens-normalize@1.11.1':

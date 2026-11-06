@@ -2,7 +2,7 @@ import { keccak256, toBytes, namehash, parseAbi, encodeFunctionData, decodeAbiPa
 import { A, B, S, T, RELEASE_KEY, MANIFEST_KEY, CHAIN_ID, loadConfig, same, isMain, fatal, type DeploymentConfig } from './config.js';
 import { client } from './clients.js';
 import { dnsEncode } from './names.js';
-import { get, cidOf, cidFromContenthash, canonicalCid, Unavailable } from './content.js';
+import { get, cidOf, cidFromContenthash, canonicalCid, Unavailable, isRawCid, cidDigestHex } from './content.js';
 import { parseEnvelope, validateManifest, type Expected } from './ensure-manifest.js';
 import { INLINE_APPROVAL_KEY, RECORD_KEYS } from './owner-promote-shared.js';
 import { hasReleaseAuthority } from './resolver-authority.js';
@@ -99,14 +99,24 @@ export async function verifyWith(c: DeploymentConfig, selectedClient: typeof cli
       result.manifestStorage = 'ONCHAIN_CANONICAL_ENVELOPE_RAW_CID_COMMITMENT';
     } else { manifestBytes = await get(result.manifestCid); result.manifestStorage = 'LOCAL_RAW_CID_STORE'; }
     const envelope = parseEnvelope(manifestBytes);
-    const bytes = await get(result.artifactCid);
+    const isRawArtifact = isRawCid(result.artifactCid);
+    let artifactBytes: Uint8Array | undefined;
+    if (isRawArtifact) {
+      artifactBytes = await get(result.artifactCid);
+    } else {
+      // UnixFS directory CID: commit to the CID multihash digest (same as signed buildHash).
+      assert(envelope.core.buildHash === cidDigestHex(result.artifactCid), 'Signed buildHash must equal directory CID multihash digest');
+    }
     const expected: Expected = { chainId: CHAIN_ID, name, projectName: c.projectName, parentRegistry: A.eth, registry: c.registry, parentResource: parentState.resource.toString(), resource: state.resource.toString(), resolver: expectedResolver, owner: c.owner, minRelease: target === 'prod' ? c.minRelease : '0' };
-    result.approver = await validateManifest(envelope,expected,result.artifactCid,block.timestamp,bytes);
+    result.approver = await validateManifest(envelope,expected,result.artifactCid,block.timestamp,artifactBytes);
     assert(await hasReleaseAuthority((method,args)=>read(expectedResolver,B.resolver,method,args),result.approver), 'Approved signer lacks resolver CONTENTHASH/TEXT write or admin authority');
     // Guard against a reorg between snapshot and finishing reads.
     assert((await client.getBlock({ blockNumber: bn })).hash === block.hash, 'Block changed during verification');
     result.release = envelope.core.release; result.bytesChecked = true;
-    result.status = 'GREEN'; result.reason = 'Owner-approved artifact pointer and raw fixture bytes match; not proof of safe code or a real repository build';
+    result.status = 'GREEN';
+    result.reason = isRawArtifact
+      ? 'Owner-approved artifact pointer and raw fixture bytes match; not proof of safe code or a real repository build'
+      : 'Owner-approved directory CID pointer and digest commitment match; not proof of safe code';
   } catch (e) {
     result.status = e instanceof Unavailable || e instanceof BaseError ? 'AMBER' : 'RED';
     result.reason = e instanceof Error ? e.message : String(e);

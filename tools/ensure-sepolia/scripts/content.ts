@@ -39,3 +39,8 @@ export function cidFromContenthash(hash: Hex) {
   return CID.decode(hexToBytes(('0x' + hash.slice(6)) as Hex)).toV1().toString();
 }
 export const sha256Hex = async (bytes: Uint8Array): Promise<Hex> => bytesToHex((await sha256.digest(bytes)).digest);
+/** True when the CID is a raw (single-file) codec; false for UnixFS directories and other codecs. */
+export const isRawCid = (cid: string) => CID.parse(cid).toV1().code === raw.code;
+/** Multihash digest of a CIDv1, as 0x-prefixed hex — used as buildHash for directory releases. */
+export const cidDigestHex = (cid: string): Hex => bytesToHex(CID.parse(cid).toV1().multihash.digest);
+

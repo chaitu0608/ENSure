@@ -112,8 +112,10 @@ export async function pinRelease(c: PinConfig, i: PinInput, log: Log): Promise<P
   const manifestCid = await pinManifest(c, bytes, `${i.label}-manifest`);
   log(`Manifest CID: ${manifestCid}`);
   await fetchBack(c, manifestCid, bytes, log);
-  await fetchBack(c, `${siteCid}/index.html`, files.find((f) => f.path === "index.html")!.bytes, log);
-  log("Fetched both back by CID");
+  // Prefer a non-HTML probe: some free Pinata gateways block text/html (403) while CSS/JS/SVG still match.
+  const probe = files.find((f) => !/\.(?:html?)$/i.test(f.path)) ?? files.find((f) => f.path === "index.html")!;
+  await fetchBack(c, `${siteCid}/${probe.path}`, probe.bytes, log);
+  log(`Fetched manifest and site probe (${probe.path}) back by CID`);
   return { manifest, siteCid, manifestCid, manifestDigest: manifestDigest(bytes), commitDigest: commitDigest(i.commitSha), contenthash: encodeContenthash(siteCid) };
 }
 
