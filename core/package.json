@@ -5,6 +5,13 @@
   "exports": {
     "./manifest": "./src/manifest.ts",
     "./ens": "./src/ens.ts",
-    "./verify": "./src/verify.ts"
+    "./setup": "./src/setup.ts",
+    "./pipeline": "./src/pipeline.ts",
+    "./api": "./src/api.ts"
+  },
+  "dependencies": {
+    "multiformats": "^13",
+    "@noble/hashes": "^1",
+    "viem": "^2"
   }
 }
