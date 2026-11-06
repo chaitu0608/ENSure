@@ -14,12 +14,15 @@
   },
   "dependencies": {
     "@ensure/core": "workspace:*",
-    "viem": "^2"
+    "viem": "^2",
+    "canonicalize": "5.1.0",
+    "multiformats": "14.0.5"
   },
   "devDependencies": {
     "@types/node": "^24",
     "tsx": "^4",
     "typescript": "^5",
-    "vitest": "^3"
+    "vitest": "^3",
+    "esbuild": "0.28.2"
   }
 }

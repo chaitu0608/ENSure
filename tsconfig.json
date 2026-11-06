@@ -8,5 +8,5 @@
     "skipLibCheck": true,
     "types": ["node"]
   },
-  "include": ["core", "server", "cli", "scripts"]
+  "include": ["core", "server", "cli", "scripts", "tools/ensure-sepolia"]
 }
