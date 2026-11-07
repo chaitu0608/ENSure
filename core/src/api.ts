@@ -38,6 +38,7 @@ export type Project = {
   mode: NameMode;
   name: string;
   previewName: string | null;
+  lastDeploy: { status: DeployStatus; createdAt: string } | null;
 };
 
 export type DeployEvent =

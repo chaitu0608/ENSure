@@ -106,4 +106,4 @@ SETUP_PRIVATE_KEY=; export SETUP_PRIVATE_KEY
 write_env
 printf 'Ready: .env written with mode 600; one-time setup key removed.\n'
 printf 'PLATFORM_NAME=%s\nPLATFORM_REGISTRY=%s\nPLATFORM_RESOLVER=%s\n' "$PLATFORM_NAME" "$PLATFORM_REGISTRY" "$PLATFORM_RESOLVER"
-printf 'Next: configure login/GitHub integrations as needed, then pnpm server.\n'
+printf 'Next: configure login/GitHub integrations as needed, then pnpm api.\n'

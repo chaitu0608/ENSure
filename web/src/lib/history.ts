@@ -2,12 +2,16 @@ import { parseAbi, parseEventLogs, type Address, type Hex } from "viem";
 import { decodeContenthash } from "@ensure/core/ens";
 import type { Envelope } from "../../../tools/ensure-sepolia/scripts/release-approval";
 import { bytesCid } from "../../../tools/ensure-sepolia/scripts/owner-promote-shared";
+import { controllerAbi } from "../../../tools/ensure-sepolia/scripts/controller-v2";
 import { deployment, publicClient } from "./config";
 
 export type ReleaseRow = {
   id: string;
-  kind: "promoted" | "rollback" | "recovered";
+  /** "unapproved": production changed with no owner approval in the same transaction. */
+  kind: "promoted" | "rollback" | "recovered" | "unapproved";
   release?: string;
+  /** Controller artifact ID; only set for controller-approved releases, which are the only controller rollback targets. */
+  releaseId?: Hex;
   cid?: string;
   manifestCid?: string;
   buildManifestCid?: string;
@@ -23,12 +27,7 @@ export type ReleaseHistory = { rows: ReleaseRow[]; source: string; note?: string
 
 const eventAbi = parseAbi([
   "event TextUpdated(uint256 indexed recordId,string indexed keyHash,string key,string value)",
-  "event ReleasePromoted(bytes32 indexed releaseId,bytes32 indexed previousReleaseId,address indexed approver,string manifestCid,bytes32 manifestDigest,bytes32 commitDigest)",
-  "event ReleaseRolledBack(bytes32 indexed releaseId,bytes32 indexed fromReleaseId,address indexed caller)",
-  "event ReleaseRecovered(bytes32 indexed releaseId,bytes32 indexed fromReleaseId,address indexed caller,string reason)",
-]);
-const controllerAbi = parseAbi([
-  "function getRelease(bytes32) view returns ((bytes contenthash,string manifestCid,bytes32 manifestDigest,bytes32 commitDigest,bytes32 previousReleaseId,address approver,uint64 approvedAt))",
+  "event ContenthashUpdated(uint256 indexed recordId,bytes contenthash)",
 ]);
 
 function envelopeFromText(value: string): Envelope | undefined {
@@ -48,7 +47,7 @@ function pointerCid(value: string | undefined): string | undefined {
 
 function historyFromBlock(): bigint {
   const configured = import.meta.env.VITE_HISTORY_FROM_BLOCK?.trim();
-  return BigInt(configured || String(deployment.ownerPromote?.block ?? 0));
+  return BigInt(configured || String(deployment.historyFromBlock));
 }
 
 async function scanLogs(address: Address, from: bigint, latest: bigint) {
@@ -83,6 +82,15 @@ async function resolverEvents(): Promise<ReleaseRow[]> {
   const approvalEvents = textEvents.filter((item) => "args" in item && item.args.key === "ensure.approval");
   const rows: ReleaseRow[] = [];
   const times = new Map<bigint, number>();
+  const approvedTxs = new Set(approvalEvents.map((item) => item.transactionHash?.toLowerCase()));
+  for (const item of parsed) {
+    if (!("eventName" in item) || item.eventName !== "ContenthashUpdated" || !("args" in item) || !item.blockNumber) continue;
+    if (approvedTxs.has(item.transactionHash?.toLowerCase())) continue;
+    let cid: string | undefined;
+    try { cid = decodeContenthash(item.args.contenthash as Hex); } catch { /* Still show the write when its contenthash cannot be decoded. */ }
+    const block = await publicClient.getBlock({ blockNumber: item.blockNumber });
+    rows.push({ id: `${item.transactionHash}-${item.logIndex}`, kind: "unapproved", cid, timestamp: Number(block.timestamp) * 1000, block: item.blockNumber, txHash: item.transactionHash });
+  }
   for (const item of approvalEvents) {
     if (!("args" in item) || !item.args.value || !item.blockNumber) continue;
     const envelope = envelopeFromText(item.args.value);
@@ -101,7 +109,7 @@ async function resolverEvents(): Promise<ReleaseRow[]> {
       release: envelope.core.release,
       cid: envelope.core.cid,
       manifestCid,
-      buildManifestCid: pointerCid(buildRecord),
+      buildManifestCid: pointerCid(buildRecord) ?? pointerCid(deployment.legacyBuildManifests[envelope.core.cid]),
       commit: envelope.core.commit,
       approver: envelope.core.approver,
       timestamp,
@@ -109,6 +117,13 @@ async function resolverEvents(): Promise<ReleaseRow[]> {
       txHash: item.transactionHash,
       envelope,
     });
+  }
+  // A fresh approval for a CID that was already released is a rollback. The chain has no separate event for it.
+  const seen = new Set<string>();
+  for (const row of [...rows].sort((a, b) => ((a.block ?? 0n) < (b.block ?? 0n) ? -1 : 1))) {
+    if (row.kind !== "promoted" || !row.cid) continue;
+    if (seen.has(row.cid)) row.kind = "rollback";
+    seen.add(row.cid);
   }
   return rows;
 }
@@ -118,27 +133,25 @@ async function controllerEvents(): Promise<ReleaseRow[]> {
   const latest = await publicClient.getBlockNumber();
   const start = historyFromBlock();
   const logs = await scanLogs(deployment.releaseController as Address, start, latest);
-  const parsed = parseEventLogs({ abi: eventAbi, logs, strict: false });
+  const parsed = parseEventLogs({ abi: controllerAbi, logs, eventName: ["ReleasePromoted", "ReleaseRolledBack"] });
   const rows: ReleaseRow[] = [];
   for (const item of parsed) {
-    if (!("eventName" in item) || !("args" in item) || !item.blockNumber) continue;
-    if (item.eventName !== "ReleasePromoted" && item.eventName !== "ReleaseRolledBack" && item.eventName !== "ReleaseRecovered") continue;
-    const id = String(item.args.releaseId ?? "") as Hex;
-    if (!/^0x[0-9a-f]{64}$/i.test(id)) continue;
+    const id = item.args.releaseId;
     const [block, release] = await Promise.all([
       publicClient.getBlock({ blockNumber: item.blockNumber }),
       publicClient.readContract({ address: deployment.releaseController as Address, abi: controllerAbi, functionName: "getRelease", args: [id] }),
     ]);
     let cid: string | undefined;
-    try { cid = decodeContenthash(release.contenthash as Hex); } catch { /* Keep the release visible when old contenthash bytes are malformed. */ }
+    try { cid = decodeContenthash(release.contenthash); } catch { /* Keep the release visible when its contenthash cannot be decoded. */ }
     rows.push({
-      id: `${item.transactionHash ?? "controller"}-${item.logIndex ?? "0"}`,
-      kind: item.eventName === "ReleaseRecovered" ? "recovered" : item.eventName === "ReleaseRolledBack" ? "rollback" : "promoted",
-      release: id,
+      id: `${item.transactionHash}-${item.logIndex}`,
+      kind: item.eventName === "ReleaseRolledBack" ? "rollback" : "promoted",
+      release: item.args.sequence.toString(),
+      releaseId: id,
       cid,
-      manifestCid: release.manifestCid,
-      commit: `0x${String(release.commitDigest).slice(2, 14)}…`,
-      approver: release.approver as string,
+      buildManifestCid: pointerCid(release.buildPointer),
+      commit: release.commitDigest,
+      approver: item.args.approver,
       timestamp: Number(block.timestamp) * 1000,
       block: item.blockNumber,
       txHash: item.transactionHash,

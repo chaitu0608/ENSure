@@ -5,7 +5,7 @@ import { ZodError } from "zod";
 import { auth, type Env } from "./auth";
 import { startBot } from "./bot";
 import { migrate } from "./db";
-import { deploys, startWorker } from "./deploys";
+import { deploys, startPushWatcher, startWorker } from "./deploys";
 import { github } from "./github";
 import { names } from "./names";
 import { projects } from "./projects";
@@ -14,7 +14,7 @@ const REQUIRED = ["DATABASE_URL", "SESSION_SECRET", "SEPOLIA_RPC_URL", "PUBLISHE
 
 export function createApp() {
   const app = new Hono<Env>();
-  app.use(cors({ origin: (process.env.WEB_URL ?? "http://localhost:5173").split(","), credentials: true }));
+  app.use(cors({ origin: (process.env.WEB_URL ?? "http://localhost:5183").split(","), credentials: true }));
   app.get("/health", (c) => c.json({ ok: true }));
   app.route("/auth", auth);
   app.route("/github", github);
@@ -38,6 +38,7 @@ if (import.meta.url === `file://${process.argv[1]}`) {
   }
   await migrate();
   await startWorker();
+  if (Number(process.env.PUSH_POLL_SECONDS)) startPushWatcher(Number(process.env.PUSH_POLL_SECONDS) * 1000);
   startBot();
   const port = Number(process.env.PORT ?? 3001);
   serve({ fetch: createApp().fetch, port });

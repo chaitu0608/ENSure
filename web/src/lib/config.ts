@@ -1,8 +1,9 @@
+/// <reference types="vite/client" />
 import { fallback, http, createPublicClient, type Address } from "viem";
 import { sepolia } from "viem/chains";
 import deploymentFile from "../../../deployments/sepolia.json";
 
-export type Deployment = typeof deploymentFile & {
+export type Deployment = Omit<typeof deploymentFile, "releaseController" | "protocol" | "legacyBuildManifests"> & {
   protocol: {
     rootRegistry: Address;
     ethRegistry: Address;
@@ -13,13 +14,16 @@ export type Deployment = typeof deploymentFile & {
     resolverImplementation: Address;
   };
   releaseController: Address | null;
+  /** Build manifests CI published for legacy releases whose prod ensure.build was never written. Keyed by site CID. */
+  legacyBuildManifests: Record<string, string>;
 };
 
-export const deployment = deploymentFile as Deployment;
+export const deployment = deploymentFile as unknown as Deployment;
 export const GATEWAYS = [
   import.meta.env.VITE_PINATA_GATEWAY,
   deployment.pinataGateway,
   ...(import.meta.env.VITE_IPFS_GATEWAYS ?? "").split(","),
+  "https://ipfs.filebase.io",
   "https://ipfs.io",
   "https://dweb.link",
 ].filter((value): value is string => Boolean(value)).map((value) => value.replace(/\/$/, ""));
@@ -29,7 +33,7 @@ export const sepoliaRpc = fallback([
   ...(configuredRpc ? [http(configuredRpc, { timeout: 10_000, retryCount: 1 })] : []),
   http("https://ethereum-sepolia-rpc.publicnode.com", { timeout: 10_000, retryCount: 1 }),
   http("https://rpc.sepolia.org", { timeout: 10_000, retryCount: 1 }),
-]);
+], { retryCount: 0 });
 
 export const publicClient = createPublicClient({ chain: sepolia, transport: sepoliaRpc });
 

@@ -1,0 +1,12 @@
+{
+  "commitSha": "a3b95832a5a9478b15b7072ee93d23d8a7d54990",
+  "siteCid": "bafybeiggfvowxsk3scv3lihhknxsvckk4ojpezqrofsjyjm3nl3acg62ja",
+  "manifestCid": "bafkreiceejccvy2i3w2zav5cq3yjpnia5zx3mb4acpcw4ralvkzpqw6h7a",
+  "manifestDigest": "0xfdf494fae44605ef4ec6318819835800a2efb018bdc8618aa342ccb92d8e23a4",
+  "commitDigest": "0x84ae4f076e6fc5743cd08bffdd014cac5230e52192f46247da148c57b6390ccf",
+  "contenthash": "0xe30101701220c62d5d6bc95b90abb5a0e7536f2a894ae392f2661171649c259b6af6011bda48",
+  "name": "preview.ritwikm.eth",
+  "txHash": "0x34ca20bb89f6d36e953c92a54b0467e609c73e70d893c330d759e4bd2542d570",
+  "explorer": "https://sepolia.etherscan.io/tx/0x34ca20bb89f6d36e953c92a54b0467e609c73e70d893c330d759e4bd2542d570",
+  "blockNumber": "12081735"
+}

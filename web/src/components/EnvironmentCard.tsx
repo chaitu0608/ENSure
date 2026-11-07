@@ -37,11 +37,11 @@ export function EnvironmentCard({ name, environment, snapshot, status, loading }
       <p className="mt-4 truncate font-mono text-xs text-zinc-400" title={name}>{name}</p>
       <div className="my-4 h-px bg-white/[0.06]" />
       <div className="space-y-3.5">
-        <DataRow label="Current release" value={approval.release ? `Release ${approval.release}` : snapshot?.records["ensure.release"] ? shortCid(snapshot.records["ensure.release"]) : "Not numbered"} />
+        <DataRow label="Current release" value={approval.release ? `Release ${approval.release}` : /^\d+$/.test(snapshot?.records["ensure.release"] ?? "") ? `Release ${snapshot?.records["ensure.release"]}` : snapshot?.records["ensure.release"] ? shortCid(snapshot.records["ensure.release"]) : "Not numbered"} />
         <div className="flex items-start justify-between gap-3"><span className="text-[11px] text-zinc-400">Content CID</span>{loading ? <Skeleton className="h-4 w-28" /> : <CopyValue value={snapshot?.cid} className="max-w-[68%] justify-end font-mono text-[10px] text-zinc-300">{shortCid(snapshot?.cid)}</CopyValue>}</div>
         <DataRow icon={<Fingerprint aria-hidden="true" className="size-3.5" />} label="Approved by" value={shortAddress(approval.approver)} mono />
         <DataRow icon={<Clock3 aria-hidden="true" className="size-3.5" />} label="Approval time" value={formatDate(approval.issuedAt ? Number(approval.issuedAt) * 1000 : undefined)} />
-        <DataRow icon={<Layers3 aria-hidden="true" className="size-3.5" />} label="Build manifest" value={snapshot?.records["ensure.build"] || snapshot?.records["ensure.manifest"] || "Not published"} mono truncate />
+        <DataRow icon={<Layers3 aria-hidden="true" className="size-3.5" />} label="Build manifest" value={snapshot?.records["ensure.build"] || "Not published"} mono truncate />
       </div>
       {!isProd && <div className="mt-auto pt-5"><div className="rounded-xl border border-violet-300/[0.1] bg-violet-300/[0.035] px-3 py-2.5 text-[10px] leading-5 text-violet-100/70">Preview is a candidate. It becomes production only after the name owner approves it.</div></div>}
     </CardContent>

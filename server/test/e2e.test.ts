@@ -10,8 +10,8 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { createPublicClient, createTestClient, createWalletClient, http, namehash, type Address } from "viem";
 import { generatePrivateKey, privateKeyToAccount } from "viem/accounts";
 import { sepolia } from "viem/chains";
-import { REGISTRY_ROLES, RESOLVER_ROLES, SEPOLIA, decodeContenthash, dnsEncode, findOwner, findResolver, labelId, readContenthash, readText, registryAbi, resolverAbi, sameCid, withAdmin } from "@ensure/core/ens";
-import { allowLogging, setupPlatform, setupProject, signerFrom } from "@ensure/core/setup";
+import { BUILD_RECORD, REGISTRY_ROLES, RESOLVER_ROLES, buildPointer, publishCalls, SEPOLIA, decodeContenthash, dnsEncode, findOwner, findResolver, labelId, readContenthash, readText, registryAbi, resolverAbi, sameCid, withAdmin } from "@ensure/core/ens";
+import { allowLogging, registerName, setupPlatform, setupProject, signerFrom } from "@ensure/core/setup";
 import { parseManifest } from "@ensure/core/manifest";
 import { startStubs } from "./stubs";
 
@@ -250,7 +250,7 @@ describe("base feature end to end", () => {
       const state = new URL(start.res.headers.get("location")!).searchParams.get("state")!;
       const done = await call(`/auth/github/callback?state=${state}&code=abc`, {}, "");
       expect(done.status).toBe(302);
-      expect(done.res.headers.get("location")).toBe("http://web.test/dashboard");
+      expect(done.res.headers.get("location")).toBe("http://web.test/deploy");
       const cookie = done.res.headers.get("set-cookie")!;
       expect(cookie).toMatch(/HttpOnly/i);
       session = cookie.match(/ensure_session=([^;]+)/)![1];
@@ -291,7 +291,7 @@ describe("base feature end to end", () => {
       const { contenthash } = await readContenthash(client, quick.name);
       expect(contenthash).toBe(r.contenthash);
       expect(sameCid(decodeContenthash(contenthash), r.siteCid)).toBe(true);
-      expect(await readText(client, quick.name, "ensure.manifest")).toBe(r.manifestCid);
+      expect(await readText(client, quick.name, BUILD_RECORD)).toBe(buildPointer(r.manifestCid));
     });
     it("files are fetchable by CID, and match the manifest", async () => {
       const r = firstQuickDeploy.receipt;
@@ -331,6 +331,28 @@ describe("base feature end to end", () => {
       expect(secondQuickDeploy.commitSha).toBe(sha);
       expect((await readContenthash(client, quick.name)).contenthash).toBe(secondQuickDeploy.receipt.contenthash);
     });
+    it("polling picks up a new commit once, for servers GitHub can't reach", async () => {
+      const { checkPushes } = await import("../src/deploys");
+      expect(await checkPushes()).toHaveLength(0);
+      const sha = await commit(plainDir, { "index.html": "<!doctype html><p>v3</p>" });
+      const created = await checkPushes();
+      expect(created.map((d) => [d.projectId, d.commitSha])).toEqual([[quick.id, sha]]);
+      secondQuickDeploy = await waitDeploy(created[0].id);
+      expect(secondQuickDeploy.status).toBe("live");
+      expect(await checkPushes()).toHaveLength(0);
+    });
+    it("refuses to set up a name that already has a registry", async () => {
+      await expect(setupProject(signer(owner), PROJECT, publisher.address)).rejects.toThrow(/already has a registry/);
+    });
+    it("registers a new name through the real registrar, paying in test USDC", async () => {
+      const name = `ensreg${suffix}.eth`;
+      const clock = setInterval(() => void test.mine({ blocks: 1 }), 5000); // an idle fork's block time stands still
+      await registerName(signer(owner), name).finally(() => clearInterval(clock));
+      expect(await findOwner(client, name)).toBe(owner.address);
+      await registerName(signer(owner), name); // already ours: nothing to do
+      await expect(registerName(signer(stranger), name)).rejects.toThrow(/belongs to/);
+      await setupPlatform(signer(owner), name, publisher.address);
+    }, 240_000);
     it("a stale commit doesn't overwrite a newer one", async () => {
       const { json } = await call("/deploys", { method: "POST", body: { projectId: quick.id, commitSha: firstQuickDeploy.commitSha } });
       const d = await waitDeploy(json.deploy.id);
@@ -460,7 +482,7 @@ describe("base feature end to end", () => {
       } finally {
         delete process.env.KUBO_API_URL;
       }
-    });
+    }, 90_000);
     it("rejects repos the user can't see, and non-GitHub URLs", async () => {
       expect((await call("/projects", { method: "POST", body: { repoUrl: "https://github.com/acme/none" } })).status).toBe(403);
       expect((await call("/projects", { method: "POST", body: { repoUrl: "https://evil.example/acme/plain" } })).status).toBeGreaterThanOrEqual(400);

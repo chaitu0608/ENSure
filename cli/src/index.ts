@@ -8,7 +8,7 @@ import { Command } from "commander";
 import { createPublicClient, createWalletClient, http, type Address, type Hex } from "viem";
 import { privateKeyToAccount } from "viem/accounts";
 import { sepolia } from "viem/chains";
-import { decodeContenthash, dnsEncode, findResolver, readContenthash, readText, resolverAbi } from "@ensure/core/ens";
+import { BUILD_RECORD, decodeContenthash, dnsEncode, findResolver, readContenthash, readText, resolverAbi } from "@ensure/core/ens";
 import { pinRelease, publishName } from "@ensure/core/pipeline";
 import type { Deploy, Project } from "@ensure/core/api";
 
@@ -123,7 +123,7 @@ program.command("status [name]").description("What a name serves, and recent dep
   if (!name) throw new Error("Pass a name, or run inside a project");
   const { contenthash, resolver } = await readContenthash(reader(), name);
   const cid = decodeContenthash(contenthash);
-  console.log(`Name:     ${name}\nCID:      ${cid}\nManifest: ${await readText(reader(), name, "ensure.manifest")}\nResolver: ${resolver}\nOpen:     https://${cid}.ipfs.dweb.link`);
+  console.log(`Name:     ${name}\nCID:      ${cid}\nManifest: ${await readText(reader(), name, BUILD_RECORD)}\nResolver: ${resolver}\nOpen:     https://${cid}.ipfs.dweb.link`);
   if (config().projectId && token()) {
     const { deploys } = await api(`/projects/${config().projectId}/deploys`);
     console.log("\nRecent deploys:");

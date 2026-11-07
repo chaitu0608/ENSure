@@ -23,7 +23,7 @@ interface IReleaseProfile {
 }
 
 /// @notice Owner-signed, preview-bound releases for prod.ensure.eth on Sepolia.
-/// @dev Unaudited v2 protocol; see docs/RELEASE_CONTROLLER.md. The live project owner
+/// @dev Unaudited v2 protocol; see docs/ENSURE.md. The live project owner
 ///      must sign AND submit. There is no publisher, recovery-key or arbitrary-call path.
 contract ENSureReleaseController {
     uint256 public constant SEPOLIA_CHAIN_ID = 11155111;

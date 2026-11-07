@@ -5,9 +5,11 @@
   "packageManager": "pnpm@10.20.0",
   "scripts": {
     "test": "vitest run --exclude server/test/e2e.test.ts",
-    "e2e": "vitest run server/test/e2e.test.ts",
+    "e2e": "vitest run server/test/e2e.test.ts --testTimeout=120000",
     "typecheck": "tsc --noEmit",
-    "server": "tsx --env-file-if-exists=.env server/src/index.ts",
+    "sandbox": "tsx --env-file-if-exists=.env server/test/sandbox.ts",
+    "web": "corepack pnpm --filter @ensure/web dev",
+    "api": "tsx --env-file-if-exists=.env server/src/index.ts",
     "setup-ens": "tsx --env-file-if-exists=.env scripts/setup-ens.ts",
     "arkiv:smoke": "tsx --env-file-if-exists=.env arkiv/scripts/smoke-test.ts",
     "ensure": "tsx --env-file-if-exists=.env cli/src/index.ts",

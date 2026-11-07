@@ -1,14 +1,17 @@
 import { decodeAbiParameters, encodeFunctionData, keccak256, namehash, parseAbi, recoverTypedDataAddress, toBytes, type Address, type Hex } from "viem";
 import { decodeContenthash, dnsEncode, labelId, sameCid } from "@ensure/core/ens";
-import { buildManifest, hashFiles, parseManifest, type Manifest } from "@ensure/core/manifest";
+import { commitDigest } from "@ensure/core/manifest";
 import { B } from "../../../tools/ensure-sepolia/scripts/protocol-abi";
 import { jcs, typedApproval, type Envelope } from "../../../tools/ensure-sepolia/scripts/release-approval";
-import { bytesCid, resolverAbi as ownerResolverAbi } from "../../../tools/ensure-sepolia/scripts/owner-promote-shared";
-import { deployment, publicClient, resolverForName } from "./config";
-import { GatewayContentMismatchError, GatewayUnavailableError, cidFromPointer, fetchIpfs, fetchIpfsMatching } from "./ipfs";
+import { bytesCid, resolverAbi as ownerResolverAbi, signedBuildHash } from "../../../tools/ensure-sepolia/scripts/owner-promote-shared";
+import { GatewayContentMismatchError, GatewayUnavailableError, IntegrityError, verifyBuild, type BuildCheck } from "../../../tools/ensure-sepolia/scripts/build-check";
+import { ACTION_ROLLBACK, ReleaseProofError, prodAuthorityProblem, readControllerState, verifyV2Release } from "../../../tools/ensure-sepolia/scripts/controller-v2";
+import { GATEWAYS, deployment, publicClient, resolverForName } from "./config";
+import { cidFromPointer } from "./ipfs";
 
+export type { BuildCheck };
 export type CheckState = "pass" | "fail" | "unavailable" | "info";
-export type VerifyStatus = "MATCH" | "MISMATCH" | "UNAVAILABLE";
+export type VerifyStatus = "MATCH" | "MISMATCH" | "UNAVAILABLE" | "UNPROTECTED";
 export type VerificationCheck = { id: string; label: string; state: CheckState; detail: string };
 export type EnvironmentSummary = {
   name: string;
@@ -40,7 +43,7 @@ export type Verification = {
   explanation?: string;
 };
 
-const profile = parseAbi([
+const profileAbi = parseAbi([
   "function contenthash(bytes32 node) view returns (bytes)",
   "function text(bytes32 node,string key) view returns (string)",
 ]);
@@ -50,10 +53,6 @@ const helper = parseAbi([
 ]);
 const findOwnerAbi = parseAbi(["function findExactOwner(bytes name) view returns (address)"]);
 const rootRegistry = parseAbi(["function getSubregistry(string label) view returns (address)"]);
-const controllerAbi = parseAbi([
-  "function currentReleaseId() view returns (bytes32)",
-  "function getRelease(bytes32) view returns ((bytes contenthash,string manifestCid,bytes32 manifestDigest,bytes32 commitDigest,bytes32 previousReleaseId,address approver,uint64 approvedAt))",
-]);
 const ROLE_SET_TEXT = 1n << 4n;
 const ROLE_SET_CONTENTHASH = 1n << 8n;
 const ROLE_LINK = 1n << 28n;
@@ -63,9 +62,6 @@ const equalAddress = (a: string, b: string) => a.toLowerCase() === b.toLowerCase
 const toIso = (unixSeconds: string) => new Date(Number(unixSeconds) * 1000).toISOString();
 
 type RegistrationState = { status: number; expiry: bigint; latestOwner: Address; tokenId: bigint; resource: bigint };
-export type BuildCheck = { cid: string; manifestCid: string; gateway: string; url: string; manifest: Manifest; fileCount: number };
-
-class IntegrityError extends Error {}
 
 function append(checks: VerificationCheck[], id: string, label: string, state: CheckState, detail: string, onCheck?: (check: VerificationCheck) => void) {
   const check = { id, label, state, detail };
@@ -84,13 +80,13 @@ async function resolveAt(name: string, resolver: Address, data: Hex, blockNumber
 }
 
 async function readContenthashAt(name: string, resolver: Address, blockNumber: bigint): Promise<Hex> {
-  const data = encodeFunctionData({ abi: profile, functionName: "contenthash", args: [namehash(name)] });
+  const data = encodeFunctionData({ abi: profileAbi, functionName: "contenthash", args: [namehash(name)] });
   const resolved = await resolveAt(name, resolver, data, blockNumber);
   return decodeAbiParameters([{ type: "bytes" }], resolved)[0];
 }
 
 async function readTextAt(name: string, resolver: Address, key: string, blockNumber: bigint): Promise<string> {
-  const data = encodeFunctionData({ abi: profile, functionName: "text", args: [namehash(name), key] });
+  const data = encodeFunctionData({ abi: profileAbi, functionName: "text", args: [namehash(name), key] });
   const resolved = await resolveAt(name, resolver, data, blockNumber);
   return decodeAbiParameters([{ type: "string" }], resolved)[0];
 }
@@ -118,76 +114,98 @@ function parseApproval(text: string): Envelope {
   catch { throw new IntegrityError("Approval manifest is not valid JSON"); }
   if (jcs(envelope) !== text) throw new IntegrityError("Approval manifest is not canonical JSON");
   if (!envelope || typeof envelope !== "object" || !envelope.core || typeof envelope.core !== "object") throw new IntegrityError("Approval manifest has no signed core");
-  const expectedFields = ["approver", "buildHash", "chainId", "cid", "commit", "issuedAt", "name", "parentRegistry", "parentResource", "previousManifest", "projectName", "release", "resolver", "resource", "schemaVersion", "validUntil"].sort().join(",");
+  const expectedFields = ["approver", "buildHash", "chainId", "cid", "commit", "issuedAt", "name", "parentRegistry", "parentResource", "previousManifest", "projectName", "registry", "release", "resolver", "resource", "schemaVersion", "validUntil"].sort().join(",");
   if (Object.keys(envelope.core).sort().join(",") !== expectedFields) throw new IntegrityError("Signed approval has an unexpected schema");
   if (envelope.core.schemaVersion !== 1 || !/^0x[0-9a-f]{64}$/i.test(envelope.core.buildHash)) throw new IntegrityError("Approval schema or signed build hash is invalid");
   if (!/^0x[0-9a-f]{130}$/i.test(envelope.signature)) throw new IntegrityError("Approval signature is malformed");
   return envelope;
 }
 
-function normalizeManifest(manifest: Manifest): Manifest {
-  if (manifest.schemaVersion !== 1 || !Array.isArray(manifest.files) || manifest.files.length === 0) throw new IntegrityError("Build manifest schema is invalid or has no files");
-  if (!/^[0-9a-f]{40}$/.test(manifest.commitSha) || !manifest.siteCid) throw new IntegrityError("Build manifest is missing a valid commit or site CID");
-  try {
-    return buildManifest({
-      repositoryId: manifest.repositoryId,
-      repositoryUrl: manifest.repositoryUrl,
-      commitSha: manifest.commitSha,
-      workflowRunUrl: manifest.workflowRunUrl,
-      siteCid: manifest.siteCid,
-      buildTools: manifest.buildTools,
-      files: manifest.files,
-    });
-  } catch (error) {
-    throw new IntegrityError(error instanceof Error ? error.message : "Build manifest file list is invalid");
-  }
-}
-
-async function mapLimit<T, R>(items: T[], limit: number, fn: (item: T) => Promise<R>): Promise<R[]> {
-  const output = new Array<R>(items.length);
-  let cursor = 0;
-  await Promise.all(Array.from({ length: Math.min(limit, items.length) }, async () => {
-    while (cursor < items.length) {
-      const index = cursor++;
-      output[index] = await fn(items[index]);
-    }
-  }));
-  return output;
-}
-
-export async function verifyBuildManifestFiles(siteCid: string, manifestCid: string, onProgress?: (complete: number, total: number) => void): Promise<BuildCheck> {
-  const manifestResult = await fetchIpfs(manifestCid);
-  let parsed: Manifest;
-  try { parsed = normalizeManifest(parseManifest(manifestResult.bytes)); }
-  catch (error) {
-    if (error instanceof IntegrityError) throw error;
-    throw new IntegrityError(error instanceof Error ? error.message : "Build manifest could not be parsed");
-  }
-  if (!sameCid(parsed.siteCid, siteCid)) throw new IntegrityError(`Build manifest siteCid ${parsed.siteCid} differs from the ENS contenthash ${siteCid}`);
-  const paths = new Set<string>();
-  for (const file of parsed.files) {
-    if (paths.has(file.path)) throw new IntegrityError(`Build manifest repeats file path ${file.path}`);
-    paths.add(file.path);
-  }
-  if (!paths.has("index.html")) throw new IntegrityError("Build manifest does not include index.html");
-  let complete = 0;
-  const checkedFiles = await mapLimit(parsed.files, 6, async (file) => {
-    const match = await fetchIpfsMatching(siteCid, file.path, (bytes) => {
-      if (bytes.length !== file.size) return false;
-      return hashFiles([{ path: file.path, bytes }])[0].sha256 === file.sha256;
-    });
-    complete += 1;
-    onProgress?.(complete, parsed.files.length);
-    return { path: file.path, gateway: match.gateway };
-  });
-  return { cid: siteCid, manifestCid, gateway: manifestResult.gateway, url: manifestResult.url, manifest: parsed, fileCount: checkedFiles.length };
-}
+export const verifyBuildManifestFiles = (siteCid: string, manifestCid: string, onProgress?: (complete: number, total: number) => void) => verifyBuild(GATEWAYS, siteCid, manifestCid, onProgress);
 
 function pointerOrCid(value: string | undefined): string | undefined {
   return cidFromPointer(value);
 }
 
-export async function verifyProject(nameInput: string, onCheck?: (check: VerificationCheck) => void): Promise<Verification> {
+type ProdRecords = { resolver: Address; contenthash: Hex; cid?: string; state: RegistrationState; buildRecord: string; manifestRecord: string; releaseRecord: string; approvalText: string };
+type ApprovedRelease = { buildManifestCid: string; bindingDetail: string; checkBuild: (build: BuildCheck) => void };
+type OnCheck = ((check: VerificationCheck) => void) | undefined;
+
+/** Direct-owner path used only while no controller is configured. */
+async function checkLegacyApproval(prod: ProdRecords, projectName: string, prodName: string, projectState: RegistrationState, currentOwner: Address, now: bigint, result: Verification, checks: VerificationCheck[], onCheck: OnCheck): Promise<ApprovedRelease> {
+  result.approvalManifestCid = pointerOrCid(prod.manifestRecord);
+  if (!result.approvalManifestCid || !prod.approvalText) throw new IntegrityError("Production signed approval pointer or inline approval text record is missing");
+  if (prod.releaseRecord !== prod.manifestRecord) throw new IntegrityError("ensure.release differs from the signed approval manifest pointer");
+  // The signed envelope is stored inline on-chain; its pointer is a raw CID commitment to those exact bytes.
+  const approvalBytes = new TextEncoder().encode(prod.approvalText);
+  if (!sameCid(await bytesCid(approvalBytes), result.approvalManifestCid)) throw new IntegrityError("Inline ENS approval bytes do not match the ensure.manifest CID");
+  const envelope = parseApproval(prod.approvalText);
+  append(checks, "approval-cid", "Approval bytes match on-chain pointer", "pass", `Inline ensure.approval hashes to ${result.approvalManifestCid}`, onCheck);
+
+  const core = envelope.core;
+  const contextOk = core.chainId === String(deployment.chainId) && core.name === prodName && core.projectName === projectName &&
+    equalAddress(core.parentRegistry, deployment.protocol.ethRegistry) && equalAddress(core.registry, deployment.registry) &&
+    core.parentResource === projectState.resource.toString() && core.resource === prod.state.resource.toString() &&
+    equalAddress(core.resolver, prod.resolver) && equalAddress(core.approver, currentOwner) && BigInt(core.release) >= BigInt(deployment.minRelease);
+  if (!contextOk) throw new IntegrityError("Signed approval name, resolver, resource, chain, current owner or release checkpoint does not match live ENSv2 state");
+  const recovered = await recoverTypedDataAddress({ ...typedApproval(core), signature: envelope.signature });
+  if (!equalAddress(recovered, currentOwner)) throw new IntegrityError(`EIP-712 signer ${recovered} is not the current ENS parent-name owner ${currentOwner}`);
+  if (BigInt(core.issuedAt) > now || BigInt(core.validUntil) <= now || BigInt(core.validUntil) <= BigInt(core.issuedAt)) throw new IntegrityError("Owner approval has expired or is not yet valid at the Sepolia snapshot");
+  if (!sameCid(core.cid, prod.cid!)) throw new IntegrityError("Production ENS contenthash CID differs from the signed release CID");
+  result.release = core.release;
+  result.commit = core.commit;
+  result.approver = recovered;
+  result.issuedAt = toIso(core.issuedAt);
+  append(checks, "approval", "Current owner EIP-712 signature", "pass", `Release ${core.release} signed by current owner ${recovered}; valid until ${toIso(core.validUntil)}`, onCheck);
+  append(checks, "cid", "ENS contenthash matches signed CID", "pass", `Both point to ${prod.cid}`, onCheck);
+  append(checks, "controller", "Release controller", "info", "No release controller is configured; the direct owner approval path is checked", onCheck);
+
+  // Legacy promotes may not have written prod ensure.build. The fallback pointer is not trusted: its manifest must
+  // still match the signed CID and commit, and every file hash below must match.
+  const pinned = deployment.legacyBuildManifests[prod.cid!];
+  const buildManifestCid = pointerOrCid(prod.buildRecord) ?? pointerOrCid(pinned);
+  if (!buildManifestCid) {
+    append(checks, "build-record", "Production build manifest pointer", "unavailable", "The live ensure.build text record is empty, so full directory verification cannot run yet.", onCheck);
+    throw new GatewayUnavailableError("Production ensure.build has no build manifest CID; full directory verification cannot run yet");
+  }
+  append(checks, "build-record", "Production build manifest pointer", "pass", prod.buildRecord ? `ensure.build → ${buildManifestCid}` : `Live ensure.build is unset on this legacy release; using the manifest CI published for this CID: ${buildManifestCid}`, onCheck);
+  return {
+    buildManifestCid,
+    bindingDetail: "The owner-signed build hash and commit also match.",
+    checkBuild(build) {
+      const index = build.manifest.files.find((file) => file.path === "index.html")!;
+      if (signedBuildHash(prod.cid!, index.sha256) !== core.buildHash.toLowerCase()) throw new IntegrityError("The signed buildHash differs from this release's CID digest or index.html SHA-256");
+      if (build.manifest.commitSha !== core.commit) throw new IntegrityError("The build manifest commit differs from the owner-signed commit");
+    },
+  };
+}
+
+/** Controller v2 path. There is no direct-resolver fallback: legacy records fail here once a controller is configured. */
+async function checkControllerApproval(controller: Address, prod: ProdRecords, currentOwner: Address, blockNumber: bigint, result: Verification, checks: VerificationCheck[], onCheck: OnCheck): Promise<ApprovedRelease> {
+  const state = await readControllerState(publicClient, controller, blockNumber);
+  const verified = await verifyV2Release(
+    { chainId: deployment.chainId, controller, projectName: deployment.projectName, owner: currentOwner, prodResolver: prod.resolver, previewResolver: deployment.previewResolver as Address, registry: deployment.registry as Address },
+    { contenthash: prod.contenthash, release: prod.releaseRecord, manifest: prod.manifestRecord, build: prod.buildRecord, approval: prod.approvalText },
+    state,
+  );
+  const kind = verified.action === ACTION_ROLLBACK ? "rollback" : "promotion";
+  result.release = verified.sequence.toString();
+  result.approver = verified.signer;
+  result.issuedAt = new Date(Number(state.transition!.timestamp) * 1000).toISOString();
+  append(checks, "controller", "Controller history matches ENS records", "pass", `Sequence ${verified.sequence} · release ID ${verified.releaseId}`, onCheck);
+  append(checks, "approval", "Current owner EIP-712 signature", "pass", `Signed ${kind} recovered to current owner ${verified.signer}; digest ${verified.digest}`, onCheck);
+  append(checks, "build-record", "Production build manifest pointer", "pass", `ensure.build and ensure.manifest → ${verified.manifestCid}`, onCheck);
+  return {
+    buildManifestCid: verified.manifestCid,
+    bindingDetail: "The owner-signed manifest and commit digests also match.",
+    checkBuild(build) {
+      if (build.manifestDigest !== verified.release.manifestDigest) throw new IntegrityError("Fetched build manifest differs from the owner-signed manifest digest");
+      if (commitDigest(build.manifest.commitSha) !== verified.release.commitDigest) throw new IntegrityError("Build manifest commit differs from the owner-signed commit digest");
+    },
+  };
+}
+
+async function verifyOnce(nameInput: string, onCheck?: (check: VerificationCheck) => void): Promise<Verification> {
   const input = nameInput.trim().toLowerCase().replace(/\.$/, "");
   const projectName = input === deployment.prodName.toLowerCase() || input === deployment.previewName.toLowerCase()
     ? deployment.projectName.toLowerCase()
@@ -210,6 +228,32 @@ export async function verifyProject(nameInput: string, onCheck?: (check: Verific
     result.blockNumber = block.number;
     append(checks, "network", "Sepolia snapshot", "pass", `Chain ${chainId} · block ${block.number}`, onCheck);
 
+    const platform = deployment.platform;
+    if (platform && input.endsWith(`.${platform.name.toLowerCase()}`)) {
+      currentStep = "Quick name records";
+      const resolver = platform.resolver as Address;
+      const [contenthash, buildRecord] = await Promise.all([readContenthashAt(input, resolver, block.number), readTextAt(input, resolver, "ensure.build", block.number)]);
+      result.name = input;
+      result.production = { name: input, resolver, buildRecord, detail: "A quick name. The platform key writes it, and no owner approves its releases." };
+      result.preview = { name: "None", detail: "Quick names have no preview step." };
+      if (contenthash === "0x") throw new IntegrityError(`${input} has no site`);
+      const cid = decodeContenthash(contenthash);
+      const manifestCid = pointerOrCid(buildRecord);
+      if (!manifestCid) throw new IntegrityError(`${input} has no ensure.build record`);
+      result.production.cid = result.cid = cid;
+      result.production.buildManifestCid = result.buildManifestCid = manifestCid;
+      append(checks, "quick-name", "Name points to a site and manifest", "pass", `${input} → ${cid}`, onCheck);
+      currentStep = "Build manifest and files";
+      const build = await verifyBuildManifestFiles(cid, manifestCid);
+      result.commit = build.manifest.commitSha;
+      result.gateway = build.gateway;
+      append(checks, "files", "Every file matches the build manifest", "pass", `${build.manifest.files.length} files checked`, onCheck);
+      append(checks, "approval", "Owner approval", "info", "Nobody approved this release. Quick names have no owner approval step.", onCheck);
+      result.status = "UNPROTECTED";
+      result.explanation = "The files match their manifest, but nobody approved them. The platform key can change this name at any time.";
+      return result;
+    }
+
     if (projectName !== deployment.projectName.toLowerCase()) {
       append(checks, "scope", "Configured ENS project", "fail", `This app is configured for ${deployment.projectName}; ${projectName} is not in deployments/sepolia.json`, onCheck);
       result.status = "MISMATCH";
@@ -227,8 +271,8 @@ export async function verifyProject(nameInput: string, onCheck?: (check: Verific
     ]);
     const hierarchyOk = equalAddress(ethForward, deployment.protocol.ethRegistry) && Number(rootEthState.status) === 2 && rootEthState.expiry > block.timestamp &&
       Number(projectState.status) === 2 && projectState.expiry > block.timestamp && projectState.resource.toString() === deployment.projectResource &&
-      equalAddress(parentRegistry, deployment.registry) && equalAddress(exactRegistry, deployment.protocol.ethRegistry);
-    append(checks, "owner", "ENSv2 parent and current owner", hierarchyOk ? "pass" : "fail", hierarchyOk ? `Current parent-name owner: ${projectState.latestOwner}` : "The .eth parent, project registration, resource or parent registry does not match the configured ENSv2 hierarchy", onCheck);
+      equalAddress(parentRegistry, deployment.registry) && equalAddress(exactRegistry, deployment.registry);
+    append(checks, "owner", "ENSv2 parent and current owner", hierarchyOk ? "pass" : "fail", hierarchyOk ? `Current parent-name owner: ${projectState.latestOwner}` : "The .eth parent, project registration, resource or project child registry does not match the configured ENSv2 hierarchy", onCheck);
     if (!hierarchyOk) throw new IntegrityError("ENSv2 project registration or ownership context does not match the configured hierarchy");
     const currentOwner = projectState.latestOwner;
 
@@ -252,8 +296,8 @@ export async function verifyProject(nameInput: string, onCheck?: (check: Verific
       const summary: EnvironmentSummary = {
         name,
         resolver,
-        buildRecord: buildRecord || manifestRecord || undefined,
-        buildManifestCid: pointerOrCid(buildRecord || manifestRecord),
+        buildRecord: buildRecord || undefined,
+        buildManifestCid: pointerOrCid(buildRecord),
         detail: "Live ENSv2 records read at the verification block",
       };
       let cid: string | undefined;
@@ -271,15 +315,6 @@ export async function verifyProject(nameInput: string, onCheck?: (check: Verific
     append(checks, "env-records", "Live production and preview records", prod.cid ? "pass" : "fail", `Production CID ${prod.cid ?? "missing"}; build record ${prod.buildRecord || "missing"}. Preview CID ${preview.cid ?? "missing"}; build record ${preview.buildRecord || "missing"}.`, onCheck);
     if (!prod.cid) throw new IntegrityError("Production ENS contenthash is empty");
     result.cid = prod.cid;
-    result.buildManifestCid = pointerOrCid(prod.buildRecord);
-    result.approvalManifestCid = pointerOrCid(prod.manifestRecord);
-    if (!result.approvalManifestCid || !prod.approvalText) throw new IntegrityError("Production signed approval pointer or inline approval text record is missing");
-    if (!result.buildManifestCid) {
-      append(checks, "build-record", "Production build manifest pointer", "unavailable", "The live ensure.build text record is empty, so full directory verification cannot run yet.", onCheck);
-      throw new GatewayUnavailableError("Production ensure.build has no build manifest CID; full directory verification cannot run yet");
-    }
-    append(checks, "build-record", "Production build manifest pointer", "pass", `ensure.build → ${result.buildManifestCid}`, onCheck);
-
     currentStep = "ENSv2 implementation and resolver isolation";
     const [registryImpl, prodImpl, previewImpl] = await Promise.all([
       read<Address>({ address: deployment.protocol.verifiableFactory, abi: B.factory, functionName: "verifyContract", args: [deployment.registry], blockNumber: block.number }),
@@ -291,59 +326,21 @@ export async function verifyProject(nameInput: string, onCheck?: (check: Verific
     if (!implementationOk) throw new IntegrityError("ENSv2 resolver implementation or separation check failed");
 
     currentStep = "Production writer permissions";
-    const ciBlocked = await checkProductionAuthority(prod.resolver, block.number);
-    append(checks, "authority", "CI cannot write production", ciBlocked ? "pass" : "fail", ciBlocked ? `CI ${deployment.ci} has no production record-writing or role-admin permissions` : `CI ${deployment.ci} has production writer or role-admin permission`, onCheck);
-    if (!ciBlocked) throw new IntegrityError("CI has a production resolver write permission");
-
-    currentStep = "IPFS approval manifest";
-    const approvalPointer = `ipfs://${result.approvalManifestCid}`;
-    const releaseIsPointer = prod.releaseRecord === approvalPointer || prod.releaseRecord === prod.manifestRecord;
-    const isControllerRelease = /^0x[0-9a-f]{64}$/i.test(prod.releaseRecord);
-    if (!releaseIsPointer && !isControllerRelease) throw new IntegrityError("ensure.release does not match the signed approval manifest pointer or a release-controller ID");
-    const approvalResponse = await fetchIpfs(result.approvalManifestCid);
-    const fetchedApprovalCid = await bytesCid(approvalResponse.bytes);
-    if (!sameCid(fetchedApprovalCid, result.approvalManifestCid)) throw new IntegrityError("Fetched approval bytes do not match the ENS approval-manifest CID");
-    const approvalText = new TextDecoder("utf-8", { fatal: true }).decode(approvalResponse.bytes);
-    if (approvalText !== prod.approvalText) throw new IntegrityError("Fetched approval bytes differ from the inline ENS approval record");
-    const envelope = parseApproval(approvalText);
-    append(checks, "approval-cid", "Approval manifest fetched from IPFS", "pass", `Fetched via ${new URL(approvalResponse.gateway).host}; raw bytes match ${result.approvalManifestCid}`, onCheck);
+    const controller = deployment.releaseController;
+    const authorityProblem = controller
+      ? await prodAuthorityProblem((functionName, args) => read({ address: prod.resolver, abi: B.resolver, functionName, args, blockNumber: block.number }), { owner: currentOwner, controller, ci: deployment.ci as Address })
+      : await checkProductionAuthority(prod.resolver, block.number) ? undefined : `CI ${deployment.ci} has production writer or role-admin permission`;
+    append(checks, "authority", controller ? "Production writers are owner and controller only" : "CI cannot write production", authorityProblem ? "fail" : "pass", authorityProblem ?? (controller ? `CI ${deployment.ci} has no production role; controller holds exactly its documented roles` : `CI ${deployment.ci} has no production record-writing or role-admin permissions`), onCheck);
+    if (authorityProblem) throw new IntegrityError(authorityProblem);
 
     currentStep = "Owner EIP-712 approval";
-    const core = envelope.core;
-    const contextOk = core.chainId === String(deployment.chainId) && core.name === prodName && core.projectName === projectName &&
-      equalAddress(core.parentRegistry, deployment.protocol.ethRegistry) && equalAddress(core.registry, deployment.registry) &&
-      core.parentResource === projectState.resource.toString() && core.resource === prod.state.resource.toString() &&
-      equalAddress(core.resolver, prod.resolver) && equalAddress(core.approver, currentOwner) && BigInt(core.release) >= BigInt(deployment.minRelease);
-    if (!contextOk) throw new IntegrityError("Signed approval name, resolver, resource, chain, current owner or release checkpoint does not match live ENSv2 state");
-    const recovered = await recoverTypedDataAddress({ ...typedApproval(core), signature: envelope.signature });
-    if (!equalAddress(recovered, currentOwner)) throw new IntegrityError(`EIP-712 signer ${recovered} is not the current ENS parent-name owner ${currentOwner}`);
-    if (BigInt(core.issuedAt) > block.timestamp || BigInt(core.validUntil) <= block.timestamp || BigInt(core.validUntil) <= BigInt(core.issuedAt)) throw new IntegrityError("Owner approval has expired or is not yet valid at the Sepolia snapshot");
-    if (!sameCid(core.cid, prod.cid)) throw new IntegrityError("Production ENS contenthash CID differs from the signed release CID");
-    result.release = core.release;
-    result.commit = core.commit;
-    result.approver = recovered;
-    result.issuedAt = toIso(core.issuedAt);
-    result.gateway = approvalResponse.gateway;
-    result.approvalManifestUrl = approvalResponse.url;
-    append(checks, "approval", "Current owner EIP-712 signature", "pass", `Release ${core.release} signed by current owner ${recovered}; valid until ${toIso(core.validUntil)}`, onCheck);
-    append(checks, "cid", "ENS contenthash matches signed CID", "pass", `Both point to ${prod.cid}`, onCheck);
-
-    if (deployment.releaseController && isControllerRelease) {
-      const [currentId, controllerRelease] = await Promise.all([
-        read<Hex>({ address: deployment.releaseController, abi: controllerAbi, functionName: "currentReleaseId", blockNumber: block.number }),
-        read<{ approver: Address; manifestCid: string }>({ address: deployment.releaseController, abi: controllerAbi, functionName: "getRelease", args: [prod.releaseRecord as Hex], blockNumber: block.number }),
-      ]);
-      const controllerMatch = currentId.toLowerCase() === prod.releaseRecord.toLowerCase() && equalAddress(controllerRelease.approver, recovered) && controllerRelease.manifestCid === prod.manifestRecord;
-      append(checks, "controller", "Controller release matches ENS", controllerMatch ? "pass" : "fail", controllerMatch ? `Current release ID ${currentId}` : "Controller history and production ENS records disagree", onCheck);
-      if (!controllerMatch) throw new IntegrityError("Controller release does not match production ENS records");
-    } else {
-      append(checks, "controller", "Release controller", "info", "No release-controller ID is set on the live approval path; direct owner approval is checked", onCheck);
-    }
-
+    const approved = controller
+      ? await checkControllerApproval(controller, prod, currentOwner, block.number, result, checks, onCheck)
+      : await checkLegacyApproval(prod, projectName, prodName, projectState, currentOwner, block.timestamp, result, checks, onCheck);
     currentStep = "Production build manifest and site files";
     let build: BuildCheck;
     try {
-      build = await verifyBuildManifestFiles(prod.cid, result.buildManifestCid, (complete, total) => {
+      build = await verifyBuildManifestFiles(prod.cid, approved.buildManifestCid, (complete, total) => {
         if (complete === total || complete === 1) append(checks, "files", "Build file SHA-256 checks", "info", `Verified ${complete} of ${total} files against the build manifest`, onCheck);
       });
     } catch (error) {
@@ -351,15 +348,13 @@ export async function verifyProject(nameInput: string, onCheck?: (check: Verific
       append(checks, "files", "Build files match manifest", mismatch ? "fail" : "unavailable", error instanceof Error ? error.message : String(error), onCheck);
       throw error;
     }
-    const index = build.manifest.files.find((file) => file.path === "index.html");
-    if (!index) throw new IntegrityError("Build manifest has no index.html file");
-    if (index.sha256.toLowerCase() !== core.buildHash.slice(2).toLowerCase()) throw new IntegrityError("The signed buildHash differs from the manifest's index.html SHA-256");
-    if (build.manifest.commitSha !== core.commit) throw new IntegrityError("The build manifest commit differs from the owner-signed commit");
+    approved.checkBuild(build);
     result.buildManifestCid = build.manifestCid;
     result.gateway = build.gateway;
     result.buildManifestUrl = build.url;
     result.siteUrl = `${build.gateway}/ipfs/${encodeURIComponent(prod.cid)}/`;
-    append(checks, "files", "Build files match manifest", "pass", `${build.fileCount} files fetched from the IPFS CID; every size and SHA-256 matches. index.html also matches the signed buildHash.`, onCheck);
+    result.commit = build.manifest.commitSha;
+    append(checks, "files", "Build files match manifest", "pass", `${build.fileCount} files fetched from the IPFS CID; every size and SHA-256 matches. ${approved.bindingDetail}`, onCheck);
     append(checks, "preview", "Preview remains separately addressable", "info", preview.cid ? `${preview.name} has its own CID ${preview.cid} and build pointer ${preview.buildRecord || "not set"}` : `${preview.name} is not currently published; production verification is independent`, onCheck);
 
     const snapshotHash = block.hash;
@@ -369,14 +364,26 @@ export async function verifyProject(nameInput: string, onCheck?: (check: Verific
     result.explanation = "The live production name, current owner signature, build manifest and fetched file hashes agree. This checks release integrity; it does not audit the site's code for vulnerabilities.";
     return result;
   } catch (error) {
-    const detail = error instanceof Error ? error.message : String(error);
-    const isMismatch = error instanceof IntegrityError || error instanceof GatewayContentMismatchError;
+    // viem errors carry the URL and request body in message. Keep the one-line summary.
+    const detail = error instanceof Error ? (error as Error & { shortMessage?: string }).shortMessage ?? error.message : String(error);
+    const isMismatch = error instanceof IntegrityError || error instanceof ReleaseProofError || error instanceof GatewayContentMismatchError;
     const state: CheckState = isMismatch ? "fail" : "unavailable";
     if (!checks.some((item) => item.state === "fail" || item.id === "verification-error")) append(checks, "verification-error", currentStep, state, detail, onCheck);
     else if (error instanceof GatewayUnavailableError && !checks.some((item) => item.id === "verification-error")) append(checks, "verification-error", currentStep, "unavailable", detail, onCheck);
     result.status = isMismatch ? "MISMATCH" : "UNAVAILABLE";
     result.explanation = detail;
     return result;
+  }
+}
+
+// Load-balanced public RPCs can route a pinned-block read to a backend that has not seen that block yet.
+const isSnapshotLag = (result: Verification) => result.status === "UNAVAILABLE" && /(?:header|block) not found/i.test(result.explanation ?? "");
+
+export async function verifyProject(nameInput: string, onCheck?: (check: VerificationCheck) => void): Promise<Verification> {
+  for (let attempt = 0; ; attempt++) {
+    const result = await verifyOnce(nameInput, onCheck);
+    if (!isSnapshotLag(result) || attempt >= 3) return result;
+    await new Promise((done) => setTimeout(done, 2000 * (attempt + 1)));
   }
 }
 

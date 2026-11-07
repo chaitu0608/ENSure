@@ -1,4 +1,4 @@
-import { recoverTypedDataAddress, type Hex } from 'viem';
+import { recoverTypedDataAddress } from 'viem';
 import { normalize } from 'viem/ens';
 import { canonicalCid, sha256Hex } from './content.js';
 import { CHAIN_ID, same } from './config.js';

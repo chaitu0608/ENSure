@@ -1,47 +1,62 @@
+import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { ArrowUpRight, Clock3, ExternalLink, FileCode2, LoaderCircle, ShieldCheck } from "lucide-react";
+import { ArrowUpRight, Clock3, ExternalLink, GitCommitHorizontal, History, LoaderCircle, RotateCcw, TriangleAlert } from "lucide-react";
 import { Link } from "react-router-dom";
-import { Badge } from "@/components/ui/badge";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { SectionHeading } from "@/components/SectionHeading";
+import { Button } from "@/components/ui/button";
+import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/components/ui/accordion";
+import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Reveal } from "@/components/Reveal";
 import { deployment } from "@/lib/config";
 import { readReleaseHistory, type ReleaseRow } from "@/lib/history";
 import { formatDate, shortAddress, shortCid, etherscanTx } from "@/lib/utils";
 
+type Filter = "all" | "promoted" | "restored";
 export function ReleasesPage() {
+  const [filter, setFilter] = useState<Filter>("all");
   const history = useQuery({ queryKey: ["releases"], queryFn: readReleaseHistory, refetchInterval: 60_000 });
-  return <div>
-    <Reveal><SectionHeading eyebrow="Sepolia contract events" title="Release history, recorded on-chain." description="Each row is reconstructed from ENS resolver or release-controller events. There is no hard-coded release list and no server history feed." action={<Badge variant="blue"><span className="size-1.5 rounded-full bg-blue-300" /> {deployment.projectName}</Badge>} /></Reveal>
-    <Reveal delay={0.04}><Card>
-      <CardHeader className="flex-row items-start justify-between border-b border-white/[0.055]">
-        <div><CardTitle>Production release records</CardTitle><p className="mt-1 text-xs text-zinc-400">Newest first · {history.data?.source ?? "Reading Sepolia events"}</p></div>
-        {history.isFetching && <LoaderCircle className="mt-1 size-4 animate-spin text-zinc-400" />}
-      </CardHeader>
-      <CardContent className="p-0">
-        {history.isLoading ? <div className="flex items-center gap-3 p-6 text-xs text-zinc-400"><LoaderCircle className="size-4 animate-spin" /> Reading production resolver logs…</div> : history.error ? <div role="alert" className="p-6 text-xs leading-5 text-rose-200/70">{history.error instanceof Error ? history.error.message : "Could not read Sepolia release events"}</div> : history.data?.rows.length ? <>
-          <div className="hidden grid-cols-[.8fr_1.2fr_1.2fr_.8fr_.65fr] gap-4 border-b border-white/[0.045] px-5 py-3 text-[10px] font-semibold uppercase tracking-[.14em] text-zinc-400 lg:grid"><span>Release</span><span>Site CID / commit</span><span>Build manifest</span><span>Owner / time</span><span className="text-right">Chain record</span></div>
-          <div className="divide-y divide-white/[0.045]">{history.data.rows.map((row) => <ReleaseItem key={row.id} row={row} />)}</div>
-        </> : <div className="px-5 py-14 text-center"><div className="mx-auto grid size-11 place-items-center rounded-xl border border-white/[0.07] bg-white/[0.025] text-zinc-400"><Clock3 className="size-5" /></div><h2 className="mt-4 text-sm font-semibold text-zinc-300">No release events found</h2><p className="mx-auto mt-2 max-w-lg text-xs leading-6 text-zinc-400">{history.data?.note ?? "This page only displays release records reconstructed from Sepolia logs. It does not create placeholder history."}</p></div>}
-      </CardContent>
-    </Card></Reveal>
-    <Reveal delay={0.08}><div className="mt-5 grid gap-4 md:grid-cols-2">
-      <Card><CardContent className="flex gap-3 p-4"><div className="mt-0.5 text-blue-300"><ShieldCheck className="size-4" /></div><div><div className="text-xs font-medium text-zinc-300">Event-sourced release timeline</div><p className="mt-1 text-[11px] leading-5 text-zinc-400">Resolver text-record events carry the signed approval. The event transaction, block timestamp and approval bytes determine the visible history.</p></div></CardContent></Card>
-      <Card><CardContent className="flex gap-3 p-4"><div className="mt-0.5 text-blue-300"><FileCode2 className="size-4" /></div><div><div className="text-xs font-medium text-zinc-300">Restore a release</div><p className="mt-1 text-[11px] leading-5 text-zinc-400">The current owner can create a fresh approval for a previously indexed release from the <Link to="/promote" className="text-blue-300 hover:text-blue-200">owner page</Link>.</p></div></CardContent></Card>
-    </div></Reveal>
+  const rows = history.data?.rows ?? [];
+  const latest = rows[0];
+  const visible = rows.filter(row => filter === "all" || (filter === "restored" ? row.kind === "rollback" || row.kind === "recovered" : row.kind === "promoted"));
+  return <div className="history-layout">
+    <Reveal><aside className="history-intro">
+      <p className="eyebrow">The release trail / Sepolia</p>
+      <h1 className="editorial-title">Every release.<br /><em>A <span className="word-cycle word-cycle-late">record.</span></em></h1>
+      <p className="editorial-description">Follow the changes to {deployment.prodName}. Every entry comes from a resolver or controller event.</p>
+      <div className="history-latest">
+        <History className="size-6" strokeWidth={1.4} aria-hidden="true" />
+        <p className="eyebrow mt-6">Latest recorded event</p>
+        <div className="history-release-number">{history.isLoading ? "…" : latest?.release && !latest.release.startsWith("0x") ? `#${latest.release}` : latest ? "Recorded" : "—"}</div>
+        <p className="text-xs leading-6 text-muted-foreground">{latest ? formatDate(latest.timestamp) : "Your release trail starts with the first published event."}</p>
+        {latest?.cid && <p className="mt-4 font-mono text-xs text-muted-foreground">{shortCid(latest.cid)}</p>}
+      </div>
+      <Button asChild variant="ghost" className="mt-4 -ml-4"><Link to="/promote"><RotateCcw className="size-4" />Restore an earlier build <ArrowUpRight className="size-4" /></Link></Button>
+    </aside></Reveal>
+    <section className="history-stream" aria-label="Release timeline">
+      <div className="history-stream-top"><Tabs value={filter} onValueChange={value => setFilter(value as Filter)}><TabsList aria-label="Filter release events"><TabsTrigger value="all">All events</TabsTrigger><TabsTrigger value="promoted">Published</TabsTrigger><TabsTrigger value="restored">Restored</TabsTrigger></TabsList></Tabs><span className="text-xs text-muted-foreground">{history.isFetching ? <LoaderCircle className="size-4 animate-spin" aria-label="Refreshing events" /> : `${visible.length} events`}</span></div>
+      {history.isLoading ? <div className="timeline-empty" role="status"><LoaderCircle className="size-6 animate-spin" /><p>Reading the release trail…</p></div> : history.error ? <div className="timeline-empty" role="alert"><Clock3 className="size-8" /><h2>Release events could not be read.</h2><p>{history.error instanceof Error ? history.error.message : "Sepolia read failed"}</p><Button variant="secondary" onClick={() => void history.refetch()}>Try again</Button></div> : visible.length ? <Accordion type="single" collapsible className="release-timeline">{visible.map((row, index) => <ReleaseEvent key={row.id} row={row} newest={row.id === latest?.id} index={index} />)}</Accordion> : <div className="timeline-empty"><History className="size-8" strokeWidth={1.4} /><h2>{rows.length ? "No events in this view." : "The first release starts here."}</h2><p>{rows.length ? "Choose another filter to see the rest of the trail." : history.data?.note ?? "Published releases will appear when recorded on Sepolia."}</p></div>}
+      <p className="timeline-source">Source · {history.data?.source ?? "Sepolia contract events"}</p>
+    </section>
   </div>;
 }
 
-function ReleaseItem({ row }: { row: ReleaseRow }) {
-  const type = row.kind === "rollback" ? "Rollback" : row.kind === "recovered" ? "Recovery" : "Promoted";
-  return <div className="grid gap-3 px-5 py-4 lg:grid-cols-[.8fr_1.2fr_1.2fr_.8fr_.65fr] lg:items-center lg:gap-4">
-    <div className="min-w-0"><div className="flex items-center gap-2"><span className="text-xs font-medium text-zinc-200">{row.release && !row.release.startsWith("0x") ? `Release #${row.release}` : type}</span><Badge variant={row.kind === "rollback" ? "warning" : "neutral"}>{type}</Badge></div><div className="mt-1 truncate font-mono text-[10px] text-zinc-400">Block {row.block?.toString() ?? "unknown"}</div></div>
-    <div className="min-w-0"><div className="text-[10px] uppercase text-zinc-400 lg:hidden">Site CID / commit</div><div className="font-mono text-[10px] text-zinc-300" title={row.cid}>{row.cid ? shortCid(row.cid) : "Not recorded"}</div><div className="mt-1 truncate font-mono text-[10px] text-zinc-400" title={row.commit}>{row.commit ? row.commit.slice(0, 16) : "Commit digest unavailable"}</div></div>
-    <div className="min-w-0"><div className="text-[10px] uppercase text-zinc-400 lg:hidden">Build manifest</div><div className="font-mono text-[10px] text-zinc-400" title={row.buildManifestCid}>{row.buildManifestCid ? shortCid(row.buildManifestCid) : "Not included in this event"}</div><div className="mt-1 font-mono text-[10px] text-zinc-400" title={row.manifestCid}>Approval {row.manifestCid ? shortCid(row.manifestCid) : "unavailable"}</div></div>
-    <div className="text-[10px] text-zinc-400"><span className="mr-1 text-zinc-400 lg:hidden">Owner / time</span>{shortAddress(row.approver)}<div className="mt-1 text-zinc-400">{formatDate(row.timestamp)}</div></div>
-    <div className="flex items-center justify-start gap-2 lg:justify-end">
-      {row.txHash && etherscanTx(row.txHash) ? <a href={etherscanTx(row.txHash)} target="_blank" rel="noreferrer" className="rounded-lg p-2 text-zinc-400 hover:bg-white/5 hover:text-blue-300" aria-label="View transaction"><ExternalLink className="size-4" /></a> : <span className="px-2 text-[10px] text-zinc-400">No tx</span>}
-      {row.cid && <a href={`https://ipfs.io/ipfs/${encodeURIComponent(row.cid)}/`} target="_blank" rel="noreferrer" className="rounded-lg p-2 text-zinc-400 hover:bg-white/5 hover:text-blue-300" aria-label="Open release on IPFS"><ArrowUpRight className="size-4" /></a>}
-    </div>
-  </div>;
+function ReleaseEvent({ row, newest, index }: { row: ReleaseRow; newest: boolean; index: number }) {
+  const restore = row.kind === "rollback" || row.kind === "recovered";
+  const unapproved = row.kind === "unapproved";
+  const Icon = unapproved ? TriangleAlert : restore ? RotateCcw : GitCommitHorizontal;
+  const kind = unapproved ? "Unapproved write" : row.kind === "rollback" ? "Rollback" : row.kind === "recovered" ? "Recovery" : "Published";
+  return <AccordionItem value={row.id} className="timeline-event">
+    <span className={`timeline-node ${newest ? "timeline-node-latest" : ""}`} aria-hidden="true"><Icon className="size-4" /></span>
+    <AccordionTrigger className="timeline-event-trigger"><span className="min-w-0"><span className="mb-3 flex items-center gap-2 text-xs text-muted-foreground"><span className="font-mono">{String(index + 1).padStart(2, "0")}</span><span>·</span>{formatDate(row.timestamp)}{newest && <span className="rounded-full bg-accent/50 px-2.5 py-1 text-[10px] font-medium text-foreground">Latest</span>}</span><span className="block text-2xl font-medium tracking-tight">{row.release && !row.release.startsWith("0x") ? `Release #${row.release}` : kind}</span><span className="mt-2 block font-mono text-xs font-normal text-muted-foreground">{row.cid ? shortCid(row.cid) : "CID not recorded"}</span></span><span className="ml-auto hidden text-xs font-normal text-muted-foreground sm:block">{kind}</span></AccordionTrigger>
+    <AccordionContent className="timeline-event-details">
+      <dl className="event-data-grid">
+        <EventDetail label="Site CID" value={row.cid} /><EventDetail label="Source commit" value={row.commit} />
+        <EventDetail label="Build manifest" value={row.buildManifestCid} /><EventDetail label="Approval CID" value={row.manifestCid} />
+        <EventDetail label="Approver" value={row.approver ? shortAddress(row.approver) : unapproved ? "Nobody approved this write" : undefined} /><EventDetail label="Block" value={row.block?.toString()} />
+      </dl>
+      <div className="mt-6 flex flex-wrap gap-3">{row.txHash && etherscanTx(row.txHash) && <Button asChild size="sm" variant="secondary"><a href={etherscanTx(row.txHash)} target="_blank" rel="noreferrer">Transaction <ExternalLink className="size-3.5" /></a></Button>}{row.cid && <Button asChild size="sm" variant="ghost"><a href={`https://ipfs.filebase.io/ipfs/${encodeURIComponent(row.cid)}/`} target="_blank" rel="noreferrer">Open IPFS files <ArrowUpRight className="size-3.5" /></a></Button>}</div>
+    </AccordionContent>
+  </AccordionItem>;
+}
+function EventDetail({ label, value }: { label: string; value?: string }) {
+  return <div className="min-w-0"><dt className="eyebrow">{label}</dt><dd className="mt-2 break-all font-mono text-xs leading-6 text-muted-foreground">{value || "Not recorded in this event"}</dd></div>;
 }

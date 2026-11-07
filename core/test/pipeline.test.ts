@@ -1,11 +1,15 @@
-import { mkdtemp, mkdir, symlink, writeFile } from "node:fs/promises";
+import { mkdtemp, mkdir, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { describe, expect, it } from "vitest";
+import { afterAll, describe, expect, it } from "vitest";
 import { readOutput } from "../src/pipeline";
+
+const dirs: string[] = [];
+afterAll(() => Promise.all(dirs.map((d) => rm(d, { recursive: true, force: true }))));
 
 async function site(files: Record<string, string>) {
   const d = await mkdtemp(join(tmpdir(), "ensure-out-"));
+  dirs.push(d);
   for (const [p, c] of Object.entries(files)) {
     await mkdir(join(d, p, ".."), { recursive: true });
     await writeFile(join(d, p), c);

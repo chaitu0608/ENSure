@@ -11,33 +11,70 @@
     "resolverImplementation": "0x115eb53f0c60696633855f90b138178fb40b2b2c"
   },
   "sourceCommit": "07e55a056f5b6a9c90119f501bdd05714e67dddd",
-  "label": "ensure",
-  "projectName": "ensure.eth",
-  "prodName": "prod.ensure.eth",
-  "previewName": "preview.ensure.eth",
-  "registry": "0x9A322BAc469a3d03185730e8eCF0035389206F8B",
-  "prodResolver": "0x114BcCDDF4B2D33f50C215f57455b0341fEE3Bb7",
-  "previewResolver": "0x75b4dCA2604585c81ce4E24c9879E1aBF1514Bcf",
-  "owner": "0xBa3084737A99f3ccB2F384b3AE8f325CF50EfBBe",
+  "label": "ritwikm",
+  "projectName": "ritwikm.eth",
+  "prodName": "prod.ritwikm.eth",
+  "previewName": "preview.ritwikm.eth",
+  "registry": "0x7cdb66833E69878C4e04fe07bDE85A6773E8bEC4",
+  "prodResolver": "0xcA8F54365BD17F7e67c8CE255E8e2aA29217609E",
+  "previewResolver": "0xaAc89B180da1BDE311b67E4241Bb972c1dE81DEC",
+  "owner": "0xE8dc14D61687738592CcC538c165C0b506F03d20",
   "ci": "0x596e775B878F6Ee852627822d2a36e3e9A6F30b4",
-  "projectResource": "100944130541400899532787203689692322296458643243820774245613677649346298904576",
+  "projectResource": "14089356817288082748117520409423282906797008486938776561222584272260087939072",
   "prodResource": "69142507747240367993869380354771030091424552277349758711722105801469992108032",
   "forkBlock": 0,
-  "minRelease": "4",
-  "history": [],
+  "minRelease": "1",
+  "history": [
+    {
+      "type": "note",
+      "message": "This deployment is on Sepolia (testnet) and does not represent mainnet ENS registrar ownership of ritwik.eth. Mainnet .eth registration must be done via ENS registrar flow."
+    }
+  ],
   "releaseController": null,
+  "legacyBuildManifests": {},
   "pinataGateway": "https://blush-legislative-impala-818.mypinata.cloud",
-  "ownerPromote": {
-    "tx": "0x7c98c0a2ccbda38c4095e3c7d5c3bff8de17bfe6995c4b6f7300df9dc08da0ae",
-    "from": "0xBa3084737A99f3ccB2F384b3AE8f325CF50EfBBe",
-    "block": 12078131,
-    "gasUsed": 3831195,
-    "verify": {
-      "status": "GREEN",
-      "target": "prod.ensure.eth",
-      "release": "4",
-      "block": "12078134"
+  "platform": {
+    "name": "walunj.eth",
+    "registry": "0xB03245f3F582eE8Bd68a9B982fEa06cB1d87a07a",
+    "resolver": "0x1e4C0eA7F1E965ef27D2A504e56d811424D2893D"
+  },
+  "projects": {
+    "ritwikm.eth": {
+      "name": "ritwikm.eth",
+      "registry": "0x7cdb66833E69878C4e04fe07bDE85A6773E8bEC4",
+      "previewResolver": "0xaAc89B180da1BDE311b67E4241Bb972c1dE81DEC",
+      "prodResolver": "0xcA8F54365BD17F7e67c8CE255E8e2aA29217609E",
+      "previewName": "preview.ritwikm.eth",
+      "prodName": "prod.ritwikm.eth"
     },
-    "atIST": "2026-11-06 23:18"
-  }
+    "ensure.eth": {
+      "name": "ensure.eth",
+      "registry": "0x9A322BAc469a3d03185730e8eCF0035389206F8B",
+      "previewResolver": "0x75b4dCA2604585c81ce4E24c9879E1aBF1514Bcf",
+      "prodResolver": "0x114BcCDDF4B2D33f50C215f57455b0341fEE3Bb7",
+      "previewName": "preview.ensure.eth",
+      "prodName": "prod.ensure.eth",
+      "owner": "0xBa3084737A99f3ccB2F384b3AE8f325CF50EfBBe",
+      "projectResource": "100944130541400899532787203689692322296458643243820774245613677649346298904576",
+      "prodResource": "69142507747240367993869380354771030091424552277349758711722105801469992108032",
+      "minRelease": "4",
+      "legacyBuildManifests": {
+        "bafybeicxywmb2dczdj55tpw7j2mh6alllmxutpblzqns5xc33refxjchh4": "ipfs://bafkreihdbz27xulaxqkk7k2cbvuc2nwqtv4nd55tklyyar4faj2qauee4m"
+      },
+      "ownerPromote": {
+        "tx": "0x7c98c0a2ccbda38c4095e3c7d5c3bff8de17bfe6995c4b6f7300df9dc08da0ae",
+        "from": "0xBa3084737A99f3ccB2F384b3AE8f325CF50EfBBe",
+        "block": 12078131,
+        "gasUsed": 3831195,
+        "verify": {
+          "status": "GREEN",
+          "target": "prod.ensure.eth",
+          "release": "4",
+          "block": "12078134"
+        },
+        "atIST": "2026-11-06 23:18"
+      }
+    }
+  },
+  "historyFromBlock": 12080587
 }

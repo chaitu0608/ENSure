@@ -40,7 +40,8 @@ export async function readNameSnapshot(name: string): Promise<NameSnapshot> {
     findOwner(publicClient, normalized),
     Promise.all(ENS_TEXT_KEYS.map(async (key) => [key, await readText(publicClient, normalized, key)] as const)),
   ]);
-  const cid = decodeContenthash(content.contenthash);
+  // A name with no release yet has an empty contenthash. That's a state to show, not an error.
+  const cid = content.contenthash === "0x" ? "" : decodeContenthash(content.contenthash);
   return {
     name: normalized,
     resolver,

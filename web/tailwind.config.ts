@@ -11,6 +11,8 @@ export default {
         ring: "hsl(var(--ring))",
         background: "hsl(var(--background))",
         foreground: "hsl(var(--foreground))",
+        "muted-foreground": "hsl(var(--muted-foreground))",
+        "primary-foreground": "hsl(var(--primary-foreground))",
         card: "hsl(var(--card))",
         muted: "hsl(var(--muted))",
         accent: "hsl(var(--accent))",
