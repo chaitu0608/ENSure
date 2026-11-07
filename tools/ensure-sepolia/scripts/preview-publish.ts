@@ -1,5 +1,5 @@
 /**
- * Live Sepolia: point preview.ensure.eth at a pinned site + manifest.
+ * Live Sepolia: point the configured preview name at a pinned site + manifest.
  * Preview resolver only — never touches prod.
  *
  * Usage:
@@ -76,7 +76,7 @@ export async function publishPreview(args: Args) {
   if (!same(account.address, c.ci)) throw new Error(`CI key address ${account.address} does not match deployments/sepolia.json ci`);
 
   if (same(c.previewResolver, c.prodResolver)) throw new Error('Unsafe shared prod/preview resolver');
-  if (!same(c.previewName, 'preview.ensure.eth')) throw new Error(`Unexpected preview name: ${c.previewName}`);
+  if (!same(c.previewName, `preview.${c.projectName}`)) throw new Error(`Unexpected preview name: ${c.previewName}`);
   const target = c.previewResolver as Address;
 
   const client = createPublicClient({ chain: sepolia, transport: http(LIVE_RPC, { timeout: 45_000 }), cacheTime: 0 });

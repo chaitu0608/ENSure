@@ -19,6 +19,7 @@ export type RepoInfo = { id: string; private: boolean; defaultBranch: string };
 /** Confirms this user may deploy the repo. Private repos need the user's own token to see them. */
 export async function repoAccess(owner: string, repo: string, userToken: string | null): Promise<RepoInfo> {
   const res = await gh(`/repos/${owner}/${repo}`, userToken);
+  if (res.headers.get("x-ratelimit-remaining") === "0") throw Object.assign(new Error("GitHub's rate limit is used up. Log in with GitHub, or try again later"), { status: 429 });
   if (!res.ok) throw Object.assign(new Error(`Repo ${owner}/${repo} not found, or you don't have access`), { status: 403 });
   const r = (await res.json()) as any;
   return { id: String(r.id), private: r.private, defaultBranch: r.default_branch };

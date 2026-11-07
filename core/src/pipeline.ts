@@ -3,7 +3,7 @@ import { readFile, lstat, readdir } from "node:fs/promises";
 import { join } from "node:path";
 import { type Address, type Hex } from "viem";
 import { buildManifest, commitDigest, hashFiles, manifestBytes, manifestDigest, mimeFor, type Manifest } from "./manifest";
-import { encodeContenthash, publishCalls, readContenthash, readText, resolverAbi, sameCid, decodeContenthash } from "./ens";
+import { BUILD_RECORD, buildPointer, encodeContenthash, publishCalls, readContenthash, readText, resolverAbi, sameCid, decodeContenthash } from "./ens";
 
 export type Log = (line: string) => void;
 export type SiteFile = { path: string; bytes: Uint8Array };
@@ -37,7 +37,7 @@ export async function readOutput(dir: string): Promise<SiteFile[]> {
 }
 
 export type PinConfig = { jwt: string; apiUrl?: string; uploadsUrl?: string; gateways?: string[]; retryMs?: number };
-export const gatewaysFrom = (c: PinConfig) => c.gateways ?? ["https://ipfs.io", "https://dweb.link"];
+export const gatewaysFrom = (c: PinConfig) => c.gateways ?? ["https://ipfs.filebase.io", "https://ipfs.io", "https://dweb.link"];
 
 async function pinataJson(res: Response, what: string) {
   if (!res.ok) throw new Error(`Pinata ${what} failed: ${res.status} ${(await res.text()).slice(0, 300)}`);
@@ -130,9 +130,9 @@ export async function publishName(chain: Chain, resolver: Address, name: string,
   const receipt = await chain.public.waitForTransactionReceipt({ hash });
   if (receipt.status !== "success") throw new Error(`transaction reverted: ${hash}`);
   const onChain = await readContenthash(chain.public, name);
-  const manifest = await readText(chain.public, name, "ensure.manifest");
+  const manifest = await readText(chain.public, name, BUILD_RECORD);
   if (onChain.contenthash.toLowerCase() !== p.contenthash.toLowerCase()) throw new Error(`read-back mismatch: ${name} serves ${onChain.contenthash}`);
-  if (manifest !== p.manifestCid) throw new Error(`read-back mismatch: ${name} manifest is ${manifest}`);
+  if (manifest !== buildPointer(p.manifestCid)) throw new Error(`read-back mismatch: ${name} manifest is ${manifest}`);
   if (!sameCid(decodeContenthash(onChain.contenthash), decodeContenthash(p.contenthash))) throw new Error("read-back CID mismatch");
   log(`${name} now serves ${decodeContenthash(onChain.contenthash)}`);
   return hash;

@@ -10,7 +10,7 @@ export type Env = { Variables: { user: User; githubToken: string | null } };
 const COOKIE = "ensure_session";
 const hash = (t: string) => createHash("sha256").update(t).digest("hex");
 const key = () => createHash("sha256").update(process.env.SESSION_SECRET ?? "").digest();
-const webUrl = () => process.env.WEB_URL ?? "http://localhost:5173";
+const webUrl = () => process.env.WEB_URL ?? "http://localhost:5183";
 const ghWeb = () => process.env.GITHUB_WEB_URL ?? "https://github.com";
 const ghApi = () => process.env.GITHUB_API_URL ?? "https://api.github.com";
 
@@ -78,10 +78,12 @@ async function finishLogin(c: Context, userId: string, port: number | null, gith
   }
   const token = await createSession(userId, "web", githubToken);
   setCookie(c, COOKIE, token, { httpOnly: true, secure: process.env.NODE_ENV === "production", sameSite: "Lax", path: "/", maxAge: 7 * 24 * 3600 });
-  return c.redirect(`${webUrl()}/dashboard`);
+  return c.redirect(`${webUrl()}/deploy`);
 }
 
 export const auth = new Hono<Env>();
+
+auth.get("/providers", (c) => c.json({ github: Boolean(process.env.GITHUB_APP_CLIENT_ID), google: Boolean(process.env.GOOGLE_CLIENT_ID) }));
 
 auth.get("/github", async (c) => {
   const id = process.env.GITHUB_APP_CLIENT_ID;

@@ -16,7 +16,7 @@ import { ipnsPublish } from "./ipns";
 import { candidateEventId, recordReleaseEvent } from "@ensure/arkiv";
 
 export const chain = () => {
-  const transport = http(process.env.SEPOLIA_RPC_URL);
+  const transport = http(process.env.SEPOLIA_RPC_URL, { timeout: 60_000 });
   const account = privateKeyToAccount(process.env.PUBLISHER_PRIVATE_KEY as `0x${string}`);
   return { public: createPublicClient({ chain: sepolia, transport }), wallet: createWalletClient({ chain: sepolia, transport, account }), account: account.address as Address };
 };
@@ -28,7 +28,7 @@ export const pinConfig = (): PinConfig => ({
   retryMs: process.env.IPFS_RETRY_MS ? Number(process.env.IPFS_RETRY_MS) : undefined,
 });
 const platform = () => ({ registry: process.env.PLATFORM_REGISTRY as Address, resolver: process.env.PLATFORM_RESOLVER as Address });
-const openUrl = (cid: string) => `https://${cid}.ipfs.dweb.link`;
+const openUrl = (cid: string) => `https://ipfs.filebase.io/ipfs/${cid}/`; // ipfs.io and dweb.link rate-limit too hard to rely on
 
 const toDeploy = (r: any): Deploy => ({
   id: r.id, projectId: r.project_id, commitSha: r.commit_sha, status: r.status, dryRun: r.dry_run, error: r.error, receipt: r.receipt, createdAt: r.created_at,
@@ -189,6 +189,29 @@ export async function startWorker(max = Number(process.env.MAX_CONCURRENT_DEPLOY
     }
   };
   const timer = setInterval(() => void tick().catch((e) => console.error("[worker]", e)), intervalMs);
+  return () => clearInterval(timer);
+}
+
+/** Deploys new commits on connected public repos, for servers GitHub's webhook can't reach, such as a laptop. */
+export async function checkPushes() {
+  const latest = await sql`SELECT DISTINCT ON (p.id) p.id, p.owner, p.repo, p.branch, d.commit_sha FROM projects p
+    JOIN deploys d ON d.project_id = p.id WHERE NOT p.repo_private AND NOT d.dry_run ORDER BY p.id, d.created_at DESC`;
+  const created = [];
+  for (const p of latest) {
+    if (!p.commit_sha) continue; // its first deploy hasn't picked a commit yet
+    const sha = await latestSha(p.owner, p.repo, p.branch).catch((e: Error) => { console.error(`[push check ${p.owner}/${p.repo}]`, e.message); return null; });
+    if (sha && sha !== p.commit_sha) created.push(await createDeploy(p.id, { commitSha: sha }));
+  }
+  return created;
+}
+
+export function startPushWatcher(intervalMs: number) {
+  let checking = false;
+  const timer = setInterval(() => {
+    if (checking) return;
+    checking = true;
+    checkPushes().catch((e) => console.error("[push check]", e)).finally(() => { checking = false; });
+  }, intervalMs);
   return () => clearInterval(timer);
 }
 

@@ -9,6 +9,9 @@ import { BrowserRouter, Navigate, Route, Routes } from "react-router-dom";
 import { deployment, sepoliaRpc } from "@/lib/config";
 import { AppShell } from "@/components/AppShell";
 import { DashboardPage } from "@/pages/DashboardPage";
+import { DeployPage } from "@/pages/DeployPage";
+import { ProjectPage } from "@/pages/ProjectPage";
+import { OpenPage } from "@/pages/OpenPage";
 import { VerifyPage } from "@/pages/VerifyPage";
 import { PromotePage } from "@/pages/PromotePage";
 import { ReleasesPage } from "@/pages/ReleasesPage";
@@ -27,6 +30,10 @@ function App() {
   return <WagmiProvider config={wagmiConfig}><QueryClientProvider client={queryClient}><BrowserRouter>
     <Routes><Route element={<AppShell />}>
       <Route index element={<DashboardPage />} />
+      <Route path="deploy" element={<DeployPage />} />
+      <Route path="deploy/:id" element={<ProjectPage />} />
+      <Route path="open" element={<OpenPage />} />
+      <Route path="open/:name" element={<OpenPage />} />
       <Route path="verify" element={<VerifyPage />} />
       <Route path="promote" element={<PromotePage />} />
       <Route path="releases" element={<ReleasesPage />} />

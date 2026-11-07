@@ -17,6 +17,11 @@ export const resolverAbi = parseAbi([
 ]);
 export const profileAbi = parseAbi(['function contenthash(bytes32 node) view returns (bytes)', 'function text(bytes32 node,string key) view returns (string)']);
 export const bytesCid = async (bytes: Uint8Array) => CID.createV1(raw.code, await sha256.digest(bytes)).toString();
+/** The v1 signed buildHash: the CID digest for a UnixFS directory, the file's SHA-256 for a raw CID. Matches the CLI verifier. */
+export const signedBuildHash = (cid: string, indexSha256: string): Hex => {
+ const parsed = CID.parse(cid).toV1();
+ return parsed.code === raw.code ? `0x${indexSha256.replace(/^0x/,'').toLowerCase()}` : bytesToHex(parsed.multihash.digest);
+};
 export const ipfsContenthash = (cid: string): Hex => concatHex(['0xe301',bytesToHex(CID.parse(cid).toV1().bytes)]);
 export async function buildPromotion(envelope: Envelope) {
  const manifest = jcs(envelope);

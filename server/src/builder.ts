@@ -12,20 +12,22 @@ const safeRelative = (p: string) => p === "" || (p.split("/").every((s) => SAFE.
 
 export type RepoRef = { owner: string; repo: string; branch: string | null; subfolder: string };
 
+const badRequest = (message: string) => Object.assign(new Error(message), { status: 400 });
+
 export function parseRepoUrl(raw: string): RepoRef {
   const u = new URL(raw);
-  if (u.protocol !== "https:" || u.hostname !== "github.com") throw new Error("Only https://github.com repositories are supported");
+  if (u.protocol !== "https:" || u.hostname !== "github.com") throw badRequest("Only https://github.com repositories are supported");
   const [owner, rawRepo, tree, branch, ...rest] = u.pathname.split("/").filter(Boolean);
   const repo = rawRepo?.replace(/\.git$/, "");
-  if (!owner || !repo || !SAFE.test(owner) || !SAFE.test(repo)) throw new Error("URL must include owner and repository");
-  if (tree && tree !== "tree") throw new Error("Unsupported GitHub URL");
-  if (branch && !SAFE.test(branch)) throw new Error("Unsupported branch name");
+  if (!owner || !repo || !SAFE.test(owner) || !SAFE.test(repo)) throw badRequest("URL must include owner and repository");
+  if (tree && tree !== "tree") throw badRequest("Unsupported GitHub URL");
+  if (branch && !SAFE.test(branch)) throw badRequest("Unsupported branch name");
   const subfolder = rest.join("/");
-  if (!safeRelative(subfolder)) throw new Error("Unsupported subfolder");
+  if (!safeRelative(subfolder)) throw badRequest("Unsupported subfolder");
   return { owner, repo, branch: branch ?? null, subfolder };
 }
 
-export const checkRelative = (p: string) => { if (!safeRelative(p)) throw new Error(`Unsupported path: ${p}`); };
+export const checkRelative = (p: string) => { if (!safeRelative(p)) throw badRequest(`Unsupported path: ${p}`); };
 const remote = (owner: string, repo: string) => `${process.env.GIT_BASE_URL ?? "https://github.com"}/${owner}/${repo}.git`;
 const authEnv = (token?: string): Record<string, string> => token
   ? { GIT_CONFIG_COUNT: "1", GIT_CONFIG_KEY_0: "http.https://github.com/.extraheader", GIT_CONFIG_VALUE_0: `Authorization: basic ${Buffer.from(`x-access-token:${token}`).toString("base64")}` }

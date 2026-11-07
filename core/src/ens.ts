@@ -8,6 +8,7 @@ export const SEPOLIA = {
   universalHelper: "0xd453e5bdb62cc3bea84341b1e306319c8ffd7dfe",
   ethRegistry: "0xd4ebcbbdf463c9c45784603db0ddd499bc44a8b4",
   ethRegistrar: "0xf633e7fc17e2bbe0d0965d18ec1821dcb754a3d3",
+  testUsdc: "0x240b0316df57887dbbe58b586508b19e633a14aa",
   verifiableFactory: "0xda70306c98e97ece36f997a21368e53298572991",
   resolverImpl: "0x115eb53f0c60696633855f90b138178fb40b2b2c",
   registryImpl: "0x9bd8a88719068d09ecee662f36c0e3856708366a",
@@ -65,6 +66,18 @@ export const universalResolverAbi = parseAbi([
   "function resolve(bytes name, bytes data) view returns (bytes, address)",
   "function findResolver(bytes name) view returns (address resolver, bytes32 node, uint256 offset)",
 ]);
+export const registrarAbi = parseAbi([
+  "function isAvailable(string label) view returns (bool)",
+  "function getRegisterPrice(string label, uint64 duration, address paymentToken) view returns (uint256 base, uint256 premium)",
+  "function makeCommitment(string label, address owner, bytes32 secret, address subregistry, address resolver, uint64 duration, bytes32 referrer) pure returns (bytes32)",
+  "function commit(bytes32 commitment)",
+  "function register(string label, address owner, bytes32 secret, address subregistry, address resolver, uint64 duration, address paymentToken, bytes32 referrer) returns (uint256)",
+]);
+/** The registrar is paid in this test token. Anyone can mint it. */
+export const testUsdcAbi = parseAbi([
+  "function mint(address to, uint256 amount)",
+  "function approve(address spender, uint256 amount) returns (bool)",
+]);
 export const helperAbi = parseAbi(["function findExactOwner(bytes name) view returns (address)"]);
 export const deployRegistryAbi = parseAbi([
   "function logDeploy(bytes32 node, bytes cid, string env, string meta)",
@@ -84,12 +97,16 @@ export function decodeContenthash(hex: Hex): string {
 
 export const sameCid = (a: string, b: string) => CID.parse(a).toV1().equals(CID.parse(b).toV1());
 
+/** The text record pointing at a release's build manifest, as ipfs://<cid>. Promote and Verify read it. */
+export const BUILD_RECORD = "ensure.build";
+export const buildPointer = (manifestCid: string) => `ipfs://${manifestCid}`;
+
 /** Writes the site pointer and manifest pointer together. */
 export const publishCalls = (name: string, contenthash: Hex, manifestCid: string): Hex[] => {
   const dns = dnsEncode(name);
   return [
     encodeFunctionData({ abi: resolverAbi, functionName: "setContenthash", args: [dns, contenthash] }),
-    encodeFunctionData({ abi: resolverAbi, functionName: "setText", args: [dns, "ensure.manifest", manifestCid] }),
+    encodeFunctionData({ abi: resolverAbi, functionName: "setText", args: [dns, BUILD_RECORD, buildPointer(manifestCid)] }),
   ];
 };
 

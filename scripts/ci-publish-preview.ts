@@ -1,13 +1,12 @@
 #!/usr/bin/env tsx
 /**
- * GitHub Actions entrypoint: pin site/dist via pinRelease, then set preview.ensure.eth
+ * GitHub Actions entrypoint: pin site/dist via pinRelease, then set the configured preview name
  * (contenthash + ensure.build) with the CI key. Never touches production.
  *
  * Env: PINATA_JWT, CI_PRIVATE_KEY, SEPOLIA_RPC_URL
  * Optional: PINATA_API_URL, PINATA_UPLOADS_URL, IPFS_GATEWAYS, IPFS_RETRY_MS,
- *           ENSURE_PREVIEW_NAME (default preview.ensure.eth)
  */
-import { writeFileSync, appendFileSync, existsSync } from "node:fs";
+import { readFileSync, writeFileSync, appendFileSync, existsSync } from "node:fs";
 import { resolve } from "node:path";
 import { pinRelease } from "@ensure/core/pipeline";
 import { publishPreview } from "../tools/ensure-sepolia/scripts/preview-publish.js";
@@ -60,7 +59,7 @@ const receipt = {
   manifestDigest: pinned.manifestDigest,
   commitDigest: pinned.commitDigest,
   contenthash: pinned.contenthash,
-  name: process.env.ENSURE_PREVIEW_NAME ?? "preview.ensure.eth",
+  name: JSON.parse(readFileSync(resolve("deployments/sepolia.json"), "utf8")).previewName as string,
 };
 writeFileSync("receipt.json", JSON.stringify(receipt, null, 2) + "\n");
 log(`Wrote receipt.json (site=${pinned.siteCid} manifest=${pinned.manifestCid})`);

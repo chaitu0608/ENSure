@@ -1,7 +1,7 @@
 // Stand-ins for services needing credentials: Pinata, public gateways and GitHub's API.
 // Everything else in the e2e test is real.
 import { createHash } from "node:crypto";
-import { createServer } from "node:http";
+import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
 import { CID } from "multiformats/cid";
 import * as Digest from "multiformats/hashes/digest";
 
@@ -10,7 +10,9 @@ const cidOf = (codec: number, data: Uint8Array | string) =>
 
 export type Repo = { id: number; private: boolean; default_branch: string; collaborators?: string[] };
 
-export function startStubs(port: number, opts: { privatePinJwt: string }) {
+type Extra = (req: IncomingMessage, res: ServerResponse, url: URL, body: Buffer) => Promise<boolean>;
+
+export function startStubs(port: number, opts: { privatePinJwt: string; apiUrl?: string; extra?: Extra }) {
   const content = new Map<string, Buffer>();
   const repos = new Map<string, Repo>();
   const calls: string[] = [];
@@ -26,6 +28,8 @@ export function startStubs(port: number, opts: { privatePinJwt: string }) {
     const body = Buffer.concat(chunks);
     const json = (o: unknown, code = 200) => { res.writeHead(code, { "content-type": "application/json" }); res.end(JSON.stringify(o)); };
     const auth = req.headers.authorization ?? "";
+    if (opts.extra && (await opts.extra(req, res, url, body))) return;
+    if (path === "/login/oauth/authorize") { res.writeHead(302, { location: `${opts.apiUrl}/auth/github/callback?code=stub&state=${url.searchParams.get("state")}` }); return res.end(); }
 
     if (path === "/pinning/pinFileToIPFS" || path === "/v3/files") {
       if (auth !== `Bearer ${opts.privatePinJwt}`) return json({ error: "bad jwt" }, 401);

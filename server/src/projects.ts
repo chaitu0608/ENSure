@@ -15,7 +15,7 @@ import { NAME, generateQuickName, isVerified } from "./names";
 
 const toProject = (r: any): Project => ({
   id: r.id, repoUrl: `https://github.com/${r.owner}/${r.repo}`, branch: r.branch, subfolder: r.subfolder, outputDir: r.output_dir,
-  mode: r.mode, name: r.name, previewName: r.preview_name,
+  mode: r.mode, name: r.name, previewName: r.preview_name, lastDeploy: r.last_status ? { status: r.last_status, createdAt: r.last_at } : null,
 });
 
 export async function createProject(u: { id: string; githubToken: string | null }, input: { repoUrl: string; branch?: string; subfolder?: string; outputDir?: string; name?: string }) {
@@ -56,7 +56,9 @@ const owned = async (id: string, userId: string) => {
 };
 
 projects.get("/", async (c) => {
-  const rows = await sql`SELECT * FROM projects WHERE user_id = ${c.get("user").id} ORDER BY created_at DESC`;
+  const rows = await sql`SELECT p.*, d.status AS last_status, d.created_at AS last_at FROM projects p
+    LEFT JOIN LATERAL (SELECT status, created_at FROM deploys WHERE project_id = p.id ORDER BY created_at DESC LIMIT 1) d ON true
+    WHERE p.user_id = ${c.get("user").id} ORDER BY p.created_at DESC`;
   return c.json({ projects: rows.map(toProject) });
 });
 

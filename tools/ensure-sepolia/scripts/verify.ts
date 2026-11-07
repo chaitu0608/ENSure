@@ -6,6 +6,9 @@ import { get, cidOf, cidFromContenthash, canonicalCid, Unavailable, isRawCid, ci
 import { parseEnvelope, validateManifest, type Expected } from './ensure-manifest.js';
 import { INLINE_APPROVAL_KEY, RECORD_KEYS } from './owner-promote-shared.js';
 import { hasReleaseAuthority } from './resolver-authority.js';
+import { prodAuthorityProblem, readControllerState, verifyV2Release } from './controller-v2.js';
+import { GatewayUnavailableError, verifyBuild } from './build-check.js';
+import { commitDigest } from '@ensure/core/manifest';
 export interface Verification {
   status: 'GREEN' | 'RED' | 'AMBER'; reason: string; mode: 'LOCAL_FORK_ONLY' | 'LIVE_SEPOLIA'; target: string;
   block?: string; blockHash?: Hex; artifactCid?: string; manifestCid?: string; approver?: Address;
@@ -14,6 +17,7 @@ export interface Verification {
 // Public RPC load balancers can route latest-header and snapshot reads to backends at different heights.
 export const isSnapshotLag = (reason: string) => /(?:header|block) not found/i.test(reason);
 interface State { status: number; expiry: bigint; latestOwner: Address; tokenId: bigint; resource: bigint }
+const gatewaysFor = (c: DeploymentConfig) => [...(process.env.IPFS_GATEWAYS ?? '').split(','), c.pinataGateway, 'https://ipfs.filebase.io', 'https://ipfs.io', 'https://dweb.link'].filter((g): g is string => Boolean(g)).map(g => g.replace(/\/$/, ''));
 const profile = parseAbi(['function contenthash(bytes32 node) view returns (bytes)', 'function text(bytes32 node,string key) view returns (string)']);
 export async function verifyWith(c: DeploymentConfig, selectedClient: typeof client, target: 'prod' | 'preview' = 'prod', snapshotBlock?: bigint): Promise<Verification> {
   const client = selectedClient;
@@ -49,7 +53,11 @@ export async function verifyWith(c: DeploymentConfig, selectedClient: typeof cli
     assert(same(forward,expectedResolver), 'Environment resolver routing changed');
     assert(same(registryImpl,A.registryImpl) && same(resolverImpl,A.resolverImpl), 'Factory/current implementation mismatch');
     assert(!same(c.prodResolver,c.previewResolver), 'Unsafe shared production/preview resolver');
-    if (target === 'prod') {
+    const controller = target === 'prod' ? c.releaseController ?? undefined : undefined;
+    if (controller) {
+      const problem = await prodAuthorityProblem((method, args) => read(c.prodResolver,B.resolver,method,args), { owner: c.owner, controller, ci: c.ci });
+      assert(!problem, problem ?? '');
+    } else if (target === 'prod') {
       const ciS = await read(c.prodResolver,B.resolver,'hasRootRoles',[S,c.ci]);
       const ciSA = await read(c.prodResolver,B.resolver,'hasRootRoles',[S<<128n,c.ci]);
       const ciM = await read(c.prodResolver,B.resolver,'hasRoles',[BigInt(keccak256(toBytes(MANIFEST_KEY))),T,c.ci]);
@@ -82,6 +90,28 @@ export async function verifyWith(c: DeploymentConfig, selectedClient: typeof cli
     const hash = decodeAbiParameters([{ type: 'bytes' }],encodedHash)[0];
     const pointer = decodeAbiParameters([{ type: 'string' }],encodedText)[0];
     const manifestPointer = decodeAbiParameters([{ type: 'string' }],encodedManifest)[0];
+    if (controller) {
+      // Controller v2 records. No fallback to the direct-owner path once a controller is configured.
+      const [encodedBuild,encodedProof] = await Promise.all(['ensure.build',INLINE_APPROVAL_KEY].map(key => read(expectedResolver,B.resolver,'resolve',[dnsEncode(name),encodeFunctionData({abi:profile,functionName:'text',args:[namehash(name),key]})]))) as [Hex,Hex];
+      const build = decodeAbiParameters([{type:'string'}],encodedBuild)[0];
+      const approval = decodeAbiParameters([{type:'string'}],encodedProof)[0];
+      const v2 = await verifyV2Release(
+        { chainId: CHAIN_ID, controller, projectName: c.projectName, owner: c.owner, prodResolver: c.prodResolver, previewResolver: c.previewResolver, registry: c.registry },
+        { contenthash: hash, release: pointer, manifest: manifestPointer, build, approval },
+        await readControllerState(client, controller, bn),
+      );
+      result.artifactCid = cidFromContenthash(hash);
+      result.manifestCid = v2.manifestCid;
+      result.manifestStorage = 'CONTROLLER_V2_ONCHAIN_PROOF';
+      const files = await verifyBuild(gatewaysFor(c), result.artifactCid, v2.manifestCid);
+      assert(files.manifestDigest === v2.release.manifestDigest, 'Fetched build manifest differs from the owner-signed manifest digest');
+      assert(commitDigest(files.manifest.commitSha) === v2.release.commitDigest, 'Build manifest commit differs from the owner-signed commit digest');
+      assert((await client.getBlock({ blockNumber: bn })).hash === block.hash, 'Block changed during verification');
+      result.approver = v2.signer; result.release = v2.sequence.toString(); result.bytesChecked = true;
+      result.status = 'GREEN';
+      result.reason = `Controller v2 proof, manifest digest and ${files.fileCount} file hashes match; not proof of safe code`;
+      return result;
+    }
     assert(pointer === manifestPointer, 'Release and manifest pointers disagree');
     assert(hash !== '0x', 'No artifact contenthash set');
     result.artifactCid = cidFromContenthash(hash);
@@ -118,7 +148,7 @@ export async function verifyWith(c: DeploymentConfig, selectedClient: typeof cli
       ? 'Owner-approved artifact pointer and raw fixture bytes match; not proof of safe code or a real repository build'
       : 'Owner-approved directory CID pointer and digest commitment match; not proof of safe code';
   } catch (e) {
-    result.status = e instanceof Unavailable || e instanceof BaseError ? 'AMBER' : 'RED';
+    result.status = e instanceof Unavailable || e instanceof GatewayUnavailableError || e instanceof BaseError ? 'AMBER' : 'RED';
     result.reason = e instanceof Error ? e.message : String(e);
   }
   return result;
