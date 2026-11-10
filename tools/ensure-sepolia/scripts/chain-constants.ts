@@ -23,5 +23,5 @@ export interface LocalConfig {
   projectResource: string; prodResource: string; minRelease: string;
   history: { release: string; cid: string; manifestCid: string; transaction: Hex }[];
 }
-export type DeploymentConfig = Omit<LocalConfig, 'mode'> & { mode: 'local-sepolia-fork' | 'sepolia'; releaseController?: Address | null; pinataGateway?: string };
+export type DeploymentConfig = Omit<LocalConfig, 'mode'> & { mode: 'local-sepolia-fork' | 'sepolia' | 'mainnet'; releaseController?: Address | null; pinataGateway?: string };
 export const same = (a: string, b: string) => a.toLowerCase() === b.toLowerCase();

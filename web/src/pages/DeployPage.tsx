@@ -12,7 +12,7 @@ import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Skeleton } from "@/components/ui/skeleton";
 import { ApiError, api, loginUrl } from "@/lib/api";
-import { deployment } from "@/lib/config";
+import { NETWORK, NETWORK_NAME, deployment, isMainnet } from "@/lib/config";
 import { cn, formatDate } from "@/lib/utils";
 
 export function ErrorNote({ message }: { message: string }) {
@@ -72,14 +72,14 @@ function NewProject({ github }: { github: boolean }) {
   const [branch, setBranch] = useState("");
   const [subfolder, setSubfolder] = useState("");
   const [outputDir, setOutputDir] = useState("");
-  const [mode, setMode] = useState<"quick" | "custom">("quick");
+  const [mode, setMode] = useState<"quick" | "custom">(isMainnet ? "custom" : "quick");
   const [name, setName] = useState(deployment.projectName);
   const [provenName, setProvenName] = useState("");
   const branches = useQuery({ queryKey: ["branches", picked], queryFn: () => api.branches(picked), enabled: Boolean(picked) });
 
   const create = useMutation({
     mutationFn: () => api.createProject({
-      repoUrl: repoUrl.trim(), deploy: true,
+      repoUrl: repoUrl.trim(), deploy: true, network: NETWORK,
       branch: branch || undefined, subfolder: subfolder.trim() || undefined, outputDir: outputDir.trim() || undefined,
       name: mode === "custom" ? name.trim() : undefined,
     }),
@@ -116,10 +116,11 @@ function NewProject({ github }: { github: boolean }) {
         <div>
           <Label>ENS name</Label>
           <div className="grid gap-3 sm:grid-cols-2">
-            <ModeOption active={mode === "quick"} onClick={() => setMode("quick")} icon={<Zap aria-hidden="true" className="size-4 text-primary" />} title="Quick name" detail="A generated name that goes live straight away." />
-            <ModeOption active={mode === "custom"} onClick={() => setMode("custom")} icon={<ShieldCheck aria-hidden="true" className="size-4 text-primary" />} title="My ENS name" detail="Deploys go to preview. Production changes only when the owner promotes." />
+            {!isMainnet && <ModeOption active={mode === "quick"} onClick={() => setMode("quick")} icon={<Zap aria-hidden="true" className="size-4 text-primary" />} title="Quick name" detail={`A generated name under ${deployment.platform?.name ?? "the platform name"} that goes live straight away, with no owner approval.`} />}
+            <ModeOption active={mode === "custom"} onClick={() => setMode("custom")} icon={<ShieldCheck aria-hidden="true" className="size-4 text-primary" />} title="My ENS name" detail={`Deploys go to preview.${deployment.projectName || "your name"}. Production changes only when its owner promotes.`} />
           </div>
         </div>
+        {isMainnet && <p className="text-xs leading-6 text-muted-foreground">Quick names are Sepolia only. On mainnet you deploy to your own ENSv2 name, set up on the <Link to="/setup" className="underline">Setup page</Link>. Each deploy spends real ETH from the publisher.</p>}
         {mode === "custom" && <div className="space-y-2">
           <Label htmlFor="custom-name">Name you own</Label>
           <Input id="custom-name" value={name} onChange={(e) => setName(e.target.value)} placeholder="project.eth" spellCheck={false} />
@@ -141,8 +142,8 @@ function Projects() {
   return <Card>
     <CardHeader><CardTitle>Projects</CardTitle></CardHeader>
     <CardContent className="space-y-2">
-      {!projects.data?.length && <p className="text-xs leading-5 text-muted-foreground">Nothing deployed yet. Your first deploy shows up here.</p>}
-      {projects.data?.map((p) => <Link key={p.id} to={`/deploy/${p.id}`} className="group flex items-center justify-between gap-3 rounded-xl border border-border p-3.5 hover:bg-foreground/[0.04] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
+      {!projects.data?.some((p) => p.network === NETWORK) && <p className="text-xs leading-5 text-muted-foreground">Nothing deployed on {NETWORK_NAME} yet. Your first deploy shows up here.</p>}
+      {projects.data?.filter((p) => p.network === NETWORK).map((p) => <Link key={p.id} to={`/deploy/${p.id}`} className="group flex items-center justify-between gap-3 rounded-xl border border-border p-3.5 hover:bg-foreground/[0.04] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
         <div className="min-w-0">
           <div className="truncate font-mono text-xs text-foreground">{p.mode === "custom" ? p.previewName : p.name}</div>
           <div className="mt-1 truncate text-[11px] text-muted-foreground">{p.repoUrl.replace("https://github.com/", "")} · {p.branch}{p.lastDeploy ? ` · ${formatDate(p.lastDeploy.createdAt)}` : ""}</div>
@@ -153,8 +154,14 @@ function Projects() {
   </Card>;
 }
 
+// Says only what's true for the build sandbox this server actually uses.
+const buildCopy = (mode?: "docker" | "local") =>
+  mode === "docker" ? "Your repo builds in a locked-down container. No keys are in its environment."
+    : mode === "local" ? "Your repo builds as a plain process on the server. No keys are in its environment, but it isn't isolated, so only build repos you trust."
+    : "Your repo builds on the server, with no keys in its environment.";
+
 const deploySteps = [
-  { title: "Build the commit", detail: "Your repo builds in a container that holds no secrets.", icon: GitBranch },
+  { title: "Build the commit", detail: "", icon: GitBranch },
   { title: "Pin the files", detail: "The site and its manifest go to IPFS, then get fetched back and compared.", icon: FileCheck2 },
   { title: "Write the name", detail: "A quick name goes live. Your own ENS name updates preview, then you promote it.", icon: Globe2 },
 ];
@@ -165,10 +172,11 @@ export function DeployPage() {
   const logout = useMutation({ mutationFn: api.logout, onSuccess: () => client.resetQueries({ queryKey: ["me"] }) });
   const loggedOut = me.error instanceof ApiError && me.error.status === 401;
   const unreachable = me.error instanceof ApiError && me.error.status !== 401;
+  const sandbox = useQuery({ queryKey: ["networks"], queryFn: api.networks, retry: false, staleTime: 60_000 });
 
   return <div className="deploy-page">
     <header className="verifier-intro">
-      <div><p className="eyebrow">Deploy / IPFS + ENSv2</p><h1 className="editorial-title">Ship the repo.<br /><em>Name the <span className="word-cycle">release.</span></em></h1><p className="editorial-description">Build, pin to IPFS and publish on ENSv2, with live logs. New commits on your branch deploy on their own.</p></div>
+      <div><p className="eyebrow">Deploy / IPFS + {NETWORK_NAME} ENSv2</p><h1 className="editorial-title">Ship the repo.<br /><em>Name the <span className="word-cycle">release.</span></em></h1><p className="editorial-description">Build, pin to IPFS and publish on ENSv2, with live logs. New commits on your branch deploy on their own.</p></div>
       <div className="min-w-0">
         {me.isLoading && <Skeleton className="h-40" />}
         {unreachable && <ErrorNote message={(me.error as Error).message} />}
@@ -179,6 +187,6 @@ export function DeployPage() {
     {me.data ? <div className="deploy-workspace">
       <NewProject github={me.data.provider === "github"} />
       <Projects />
-    </div> : <section className="verification-plan" aria-labelledby="deploy-plan-title"><div><p className="eyebrow">What happens</p><h2 id="deploy-plan-title" className="mt-3 text-2xl font-medium tracking-tight">Three steps per deploy.</h2></div><ol className="verification-phases">{deploySteps.map(({ title, detail, icon: Icon }, index) => <li key={title}><span className="phase-icon"><Icon strokeWidth={1.4} aria-hidden="true" /></span><span className="eyebrow">0{index + 1}</span><h3>{title}</h3><p>{detail}</p></li>)}</ol></section>}
+    </div> : <section className="verification-plan" aria-labelledby="deploy-plan-title"><div><p className="eyebrow">What happens</p><h2 id="deploy-plan-title" className="mt-3 text-2xl font-medium tracking-tight">Three steps per deploy.</h2></div><ol className="verification-phases">{deploySteps.map(({ title, detail, icon: Icon }, index) => <li key={title}><span className="phase-icon"><Icon strokeWidth={1.4} aria-hidden="true" /></span><span className="eyebrow">0{index + 1}</span><h3>{title}</h3><p>{detail || buildCopy(sandbox.data?.buildSandbox)}</p></li>)}</ol></section>}
   </div>;
 }

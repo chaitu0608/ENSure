@@ -661,3 +661,33 @@ button { -webkit-tap-highlight-color: transparent; }
 /* Hashes and CIDs in messages have no break points. They must never widen the page. */
 [role="alert"], [role="status"] { overflow-wrap: anywhere; min-width: 0; }
 .owner-page, .verifier-page, .deploy-page, .history-layout { min-width: 0; }
+
+/* Network choice and the real-money warning. */
+.mainnet-bar { display: flex; align-items: center; justify-content: center; gap: 8px; padding: 7px 16px; border-top: 1px solid #FDE68A33; background: #FDE68A14; color: #FDE68A; font-size: 11px; text-align: center; }
+.setup-warning { display: flex; align-items: flex-start; gap: 10px; margin-top: 18px; max-width: 620px; padding: 14px 16px; border: 1px solid #FDE68A40; border-radius: 12px; background: #FDE68A0D; color: #FDE68A; font-size: 12px; line-height: 1.8; }
+.setup-facts { display: grid; gap: 12px; margin-top: 20px; max-width: 620px; font-size: 12px; }
+.setup-facts > div { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 6px 18px; padding-bottom: 12px; border-bottom: 1px solid #263B59; }
+.setup-facts dt { color: #C5CEDD; }
+.setup-facts dd { overflow-wrap: anywhere; }
+.setup-steps { margin-top: 20px; list-style: none; font-size: 12px; line-height: 2.2; color: #C5CEDD; }
+.setup-steps li { display: flex; align-items: center; gap: 9px; overflow-wrap: anywhere; }
+.setup-command { margin-top: 14px; padding: 16px; overflow-x: auto; border: 1px solid #263B59; border-radius: 12px; background: #07152E; font-size: 11px; line-height: 1.7; }
+@media (max-width: 699px) { .network-switch { width: 88px !important; padding-inline: 8px !important; } .landing-shell .header-verify { display: none; } }
+/* The mainnet warning makes the sticky header taller, so the hero starts lower. */
+.landing-shell:has(.mainnet-bar) .journey-sticky { top: 108px; height: calc(100svh - 108px); }
+@media (max-width: 699px) { .landing-shell:has(.mainnet-bar) .journey-sticky { top: 100px; height: calc(100svh - 100px); } }
+
+/* Who holds which role: one card per wallet. */
+.wallet-cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 14px; list-style: none; }
+.wallet-card { min-width: 0; padding: 18px 20px; border: 1px solid #263B59; border-radius: 18px; background: #0B1F3A; }
+.wallet-card-you { border-color: #F4E8C1; }
+.wallet-card-top { display: flex; align-items: flex-start; gap: 12px; }
+.wallet-card-icon { display: grid; width: 34px; height: 34px; flex-shrink: 0; place-items: center; border: 1px solid #263B59; border-radius: 10px; background: #10294B; color: #F4E8C1; }
+.wallet-card-title { font-size: 15px; font-weight: 500; letter-spacing: -.02em; }
+.wallet-card-where { margin-top: 3px; font-size: 11px; line-height: 1.6; color: #C5CEDD; }
+.wallet-card-can { display: grid; gap: 6px; margin-top: 14px; padding-top: 12px; border-top: 1px solid #263B59; font-size: 12px; }
+.wallet-card-can > div { display: flex; justify-content: space-between; gap: 12px; }
+.wallet-card-can dt { color: #C5CEDD; }
+.you-tag { margin-left: 8px; padding: 1px 7px; border: 1px solid #F4E8C1; border-radius: 999px; font-size: 9px; color: #F4E8C1; vertical-align: middle; }
+.wallet-role { font-size: 11px; color: #C5CEDD; }
+@media (max-width: 699px) { .wallet-role { display: none; } }

@@ -1,6 +1,6 @@
 # ENSure
 
-The single context doc: the idea, how it works, what exists, what's left. Addresses live in `deployments/sepolia.json`. If this doc disagrees with the chain or the code, they win.
+The single context doc: the idea, how it works, what exists, what's left. Addresses live in `deployments/sepolia.json` and `deployments/mainnet.json`. If this doc disagrees with the chain or the code, they win.
 
 ## 1. The idea
 
@@ -69,7 +69,7 @@ ENS is the publishing identity and permission system here, not a label. A succes
 
 ## 3. ENSv2 on Sepolia
 
-Mainnet still resolves through ENSv1, so the target is Sepolia, chain ID `11155111`. ENS source: `ensdomains/contracts-v2` at `07e55a056f5b6a9c90119f501bdd05714e67dddd`.
+ENSure runs on ENSv2 only, on either network, chosen in the header. Sepolia is chain ID `11155111` and the default. Mainnet is chain ID `1`: ENSv2 went live there on 2026-10-27, and names not yet migrated still resolve through their v1 records. Migration is one-way and happens in the ENS app, never in ENSure. Sepolia ENS source: `ensdomains/contracts-v2` at `07e55a056f5b6a9c90119f501bdd05714e67dddd`.
 
 | ENSv2 feature | Use |
 | --- | --- |
@@ -276,6 +276,18 @@ Live reads and transactions, on a test name, marked as a controlled demo. Never 
 8. Owner rolls back to the approved release: **MATCH** again, and the history shows the whole incident.
 9. Dead RPC: **UNAVAILABLE**, never green.
 
+**Two wallets.** Wallet A is the owner (`0xE8dc…3d20` for `ritwikm.eth`). Wallet B is any other MetaMask account with no role. The publisher is the server's key and never needs to be in MetaMask. The header shows the connected wallet's role (Owner, Publisher or No role), read from the chain, and the "Who can change what" panel shows one card per wallet, marking yours as You. If the owner and publisher were ever the same address, both roles appear on one card with a warning.
+
+**Run order on Sepolia:**
+1. Wallet B connected. Header says No role. `/promote`: its card and column show every production write reverting, and the owner actions refuse with "This wallet has no role here".
+2. Switch MetaMask to wallet A. Header says Owner, and its card is You. Same table: owner Allowed, publisher Reverts.
+3. Push a change to the test repo (or redeploy it from `/deploy`, My ENS name). Preview updates and production doesn't.
+4. `/promote`: review the candidate, sign, send. `/verify` shows MATCH.
+5. Push another change so preview differs from production, then Demo drill tab: write it to production without approval. `/verify` shows MISMATCH and names the check.
+6. Preview access tab: revoke the publisher. The publisher card flips to "Can't publish".
+7. Restore tab: roll back to the earlier approved release. MATCH again, and `/releases` shows the unapproved write and the rollback.
+8. Grant the publisher back afterwards, or the next deploy fails.
+
 **Where each step lives:** 1: `/deploy`, then `/verify` with the quick name. 2, 4, 7: the "Who can change what" table on `/verify` and `/promote`, where each cell is a simulated call and nothing is sent. 3: run the publish commands below with a changed `site/`, or push to `main` if the workflow's repo variables and keys are set. 5: `/promote`. 6: `/promote`, Demo drill tab. 8: `/promote`, Restore tab, then `/releases`. 9: DevTools, Network, Offline, then Verify (about 20 seconds).
 
 **Publishing to preview by hand** (sends one transaction from the CI key). The CID comes from the files, so change something in `site/` first or the new preview equals the old one, and step 6 stays disabled:
@@ -306,7 +318,7 @@ COMMIT_SHA=$(git rev-parse HEAD) corepack pnpm ci:publish-preview
 - Builds never see secrets. Forked PRs never reach a publish job.
 - Never weaken a check or fake a result. UNAVAILABLE is never MATCH.
 - Don't auto-send repair transactions.
-- Keep it simple: no new features, redesigns, mainnet or paid infra.
+- Keep it simple: no new features, redesigns or paid infra. Mainnet spends real ETH: it has its own publisher key, never falls back to the testnet key, and owner steps go through the owner's wallet.
 - No unrelated third-party project names in code, config or docs.
 
 ## 13. Status (2026-11-07)
@@ -314,6 +326,8 @@ COMMIT_SHA=$(git rev-parse HEAD) corepack pnpm ci:publish-preview
 **Active project:** `ritwikm.eth`, owned by `0xE8dc14D61687738592CcC538c165C0b506F03d20`, set up with separate prod and preview resolvers. It has no release until its first promote, so Verify reads MISMATCH until then. Quick names use `walunj.eth`. Each approval lasts 48 hours, after which Verify correctly fails until a fresh promote.
 
 **Previous project:** `ensure.eth`, kept under `projects` in `deployments/sepolia.json`. The v2 controller is still hard-scoped to `ensure.eth` and needs changing before it can serve `ritwikm.eth`, so the demo uses the direct owner path (v1). Publishing follows `deployments/sepolia.json`.
+
+**Mainnet:** code is ready, but no project exists yet (`deployments/mainnet.json` is empty) and nothing has been sent. Flow: migrate the name in the ENS app → `/setup` from the owner's wallet → `pnpm sync-deployment mainnet <name.eth> <publisher>` → publish with `ENSURE_NETWORK=mainnet` or the Deploy page → promote. The site opens at `https://prod.<name.eth>.limo`. Quick names and the on-chain deploy log are Sepolia only. Tested on a mainnet fork against the real ENSv2 contracts: setup in the browser, including reusing the registry of a really migrated name; a server deploy to preview; promote, on-chain revert, unapproved write, revoke and rollback. Tested on real mainnet, read-only: name status, and `/open` landing on a real v2 name at eth.limo with the name in the URL. Not yet proven: a v2 *subname* on eth.limo (subnames of v1 names load there, and no v2 subname with a site could be found to test), and real MetaMask.
 
 **Tested:** the section 10 drill, steps 2 to 9, plus an UNPROTECTED read of a quick name, passes through the real web UI on a local Sepolia fork, against the real ENSv2 contracts. It used a generated owner and CI key, an injected test wallet instead of MetaMask, and stubbed IPFS. `pnpm test` passes 123 with 1 live test gated behind `ENSURE_LIVE=1`. v2 web and CLI code passes against a simulated chain only, never the real contract. Server and CLI pass on a local Sepolia fork with Pinata and GitHub stubbed. The Deploy pages pass in Chrome on a fork of live Sepolia, with the real project keys and a real GitHub clone, and with Pinata stubbed.
 
@@ -324,7 +338,7 @@ COMMIT_SHA=$(git rev-parse HEAD) corepack pnpm ci:publish-preview
 - Codec-aware UnixFS check of the directory CID: files are bound through manifest hashes, so a lying gateway combined with a lying CI manifest could pass.
 - Arkiv v2 update and history panel.
 
-**Not run for real:** v2 on the real contract, MetaMask signing in the new owner flow, Docker builds, GitHub App and webhooks, Google login, Telegram's live connection, a full server deploy with real Pinata.
+**Not run for real:** anything on mainnet, v2 on the real contract, MetaMask signing in the new owner flow, Docker builds, GitHub App and webhooks, Google login, Telegram's live connection, a full server deploy with real Pinata.
 
 **Next, in order:**
 1. Duplicate-build fix and fork tests for the controller. The diff isn't in this repo and must be supplied.

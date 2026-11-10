@@ -1,0 +1,32 @@
+{
+  "chainId": 1,
+  "mode": "mainnet",
+  "protocol": {
+    "rootRegistry": "0x2553c09be6447beffdb86fa622ad41fb8f77a91e",
+    "ethRegistry": "0xf60aba43e1f7f3dab1186ff03b561401c9df85e2",
+    "universalResolver": "0xeEeEEEeE14D718C2B47D9923Deab1335E144EeEe",
+    "universalHelper": "0x46ae127d14683ac74ef151e46ae2117a1a25c676",
+    "verifiableFactory": "0x77510ba162dfea3d8989e3f0928a691b345730d2",
+    "registryImplementation": "0xfaa23592aca10a6d8875b18ea86954e8eb6d8d72",
+    "resolverImplementation": "0x565b0f456a04ac9b48758190e90030623cff57c5"
+  },
+  "label": "",
+  "projectName": "",
+  "prodName": "",
+  "previewName": "",
+  "registry": "",
+  "prodResolver": "",
+  "previewResolver": "",
+  "owner": "",
+  "ci": "",
+  "projectResource": "",
+  "prodResource": "",
+  "minRelease": "1",
+  "history": [],
+  "releaseController": null,
+  "legacyBuildManifests": {},
+  "pinataGateway": "https://ipfs.filebase.io",
+  "platform": null,
+  "projects": {},
+  "historyFromBlock": 0
+}

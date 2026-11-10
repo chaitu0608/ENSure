@@ -3,6 +3,7 @@ import { motion, useReducedMotion, useScroll, useSpring, useTransform, type Moti
 import { ArrowDown, ArrowRight, Pause, Play } from "lucide-react";
 import { Link } from "react-router-dom";
 import { Button } from "@/components/ui/button";
+import { NETWORK_NAME } from "@/lib/config";
 import { orbitalPoint, particlePhase, projectPoint, safeZoneOpacity, torusPoint } from "@/lib/hero-motion";
 
 const TAU = Math.PI * 2;
@@ -135,7 +136,7 @@ export function HeroJourney() {
   return <section className={`hero-journey ${reduced ? "reduced-motion-journey" : ""}`} ref={root} aria-labelledby="hero-title">
     <div className="journey-sticky">
       <canvas ref={canvas} className="journey-canvas" aria-hidden="true" />
-      <div className="journey-edge journey-edge-top" aria-hidden="true"><span>PROOF / AUTHORITY / CONTINUITY</span><span>ETHEREUM · SEPOLIA</span></div>
+      <div className="journey-edge journey-edge-top" aria-hidden="true"><span>PROOF / AUTHORITY / CONTINUITY</span><span>ETHEREUM · {NETWORK_NAME.toUpperCase()}</span></div>
       <motion.div className="journey-hero-layer" style={{ opacity: reduced ? 1 : heroOpacity, visibility: reduced ? "visible" : heroVisibility, y: reduced ? 0 : heroY }}>
         <div className="journey-copy" ref={copy}>
           <p className="eyebrow">ENSURE / RELEASE ASSURANCE</p>

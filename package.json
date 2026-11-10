@@ -10,6 +10,7 @@
     "sandbox": "tsx --env-file-if-exists=.env server/test/sandbox.ts",
     "web": "corepack pnpm --filter @ensure/web dev",
     "api": "tsx --env-file-if-exists=.env server/src/index.ts",
+    "sync-deployment": "tsx --env-file-if-exists=.env scripts/sync-deployment.ts",
     "setup-ens": "tsx --env-file-if-exists=.env scripts/setup-ens.ts",
     "arkiv:smoke": "tsx --env-file-if-exists=.env arkiv/scripts/smoke-test.ts",
     "ensure": "tsx --env-file-if-exists=.env cli/src/index.ts",

@@ -6,7 +6,7 @@ import { Button } from "@/components/ui/button";
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/components/ui/accordion";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Reveal } from "@/components/Reveal";
-import { deployment } from "@/lib/config";
+import { NETWORK_NAME, deployment } from "@/lib/config";
 import { readReleaseHistory, type ReleaseRow } from "@/lib/history";
 import { formatDate, shortAddress, shortCid, etherscanTx } from "@/lib/utils";
 
@@ -19,7 +19,7 @@ export function ReleasesPage() {
   const visible = rows.filter(row => filter === "all" || (filter === "restored" ? row.kind === "rollback" || row.kind === "recovered" : row.kind === "promoted"));
   return <div className="history-layout">
     <Reveal><aside className="history-intro">
-      <p className="eyebrow">The release trail / Sepolia</p>
+      <p className="eyebrow">The release trail / {NETWORK_NAME}</p>
       <h1 className="editorial-title">Every release.<br /><em>A <span className="word-cycle word-cycle-late">record.</span></em></h1>
       <p className="editorial-description">Follow the changes to {deployment.prodName}. Every entry comes from a resolver or controller event.</p>
       <div className="history-latest">
@@ -33,8 +33,8 @@ export function ReleasesPage() {
     </aside></Reveal>
     <section className="history-stream" aria-label="Release timeline">
       <div className="history-stream-top"><Tabs value={filter} onValueChange={value => setFilter(value as Filter)}><TabsList aria-label="Filter release events"><TabsTrigger value="all">All events</TabsTrigger><TabsTrigger value="promoted">Published</TabsTrigger><TabsTrigger value="restored">Restored</TabsTrigger></TabsList></Tabs><span className="text-xs text-muted-foreground">{history.isFetching ? <LoaderCircle className="size-4 animate-spin" aria-label="Refreshing events" /> : `${visible.length} events`}</span></div>
-      {history.isLoading ? <div className="timeline-empty" role="status"><LoaderCircle className="size-6 animate-spin" /><p>Reading the release trail…</p></div> : history.error ? <div className="timeline-empty" role="alert"><Clock3 className="size-8" /><h2>Release events could not be read.</h2><p>{history.error instanceof Error ? history.error.message : "Sepolia read failed"}</p><Button variant="secondary" onClick={() => void history.refetch()}>Try again</Button></div> : visible.length ? <Accordion type="single" collapsible className="release-timeline">{visible.map((row, index) => <ReleaseEvent key={row.id} row={row} newest={row.id === latest?.id} index={index} />)}</Accordion> : <div className="timeline-empty"><History className="size-8" strokeWidth={1.4} /><h2>{rows.length ? "No events in this view." : "The first release starts here."}</h2><p>{rows.length ? "Choose another filter to see the rest of the trail." : history.data?.note ?? "Published releases will appear when recorded on Sepolia."}</p></div>}
-      <p className="timeline-source">Source · {history.data?.source ?? "Sepolia contract events"}</p>
+      {history.isLoading ? <div className="timeline-empty" role="status"><LoaderCircle className="size-6 animate-spin" /><p>Reading the release trail…</p></div> : history.error ? <div className="timeline-empty" role="alert"><Clock3 className="size-8" /><h2>Release events could not be read.</h2><p>{history.error instanceof Error ? history.error.message : `${NETWORK_NAME} read failed`}</p><Button variant="secondary" onClick={() => void history.refetch()}>Try again</Button></div> : visible.length ? <Accordion type="single" collapsible className="release-timeline">{visible.map((row, index) => <ReleaseEvent key={row.id} row={row} newest={row.id === latest?.id} index={index} />)}</Accordion> : <div className="timeline-empty"><History className="size-8" strokeWidth={1.4} /><h2>{rows.length ? "No events in this view." : "The first release starts here."}</h2><p>{rows.length ? "Choose another filter to see the rest of the trail." : history.data?.note ?? "Published releases will appear when recorded on-chain."}</p></div>}
+      <p className="timeline-source">Source · {history.data?.source ?? `${NETWORK_NAME} contract events`}</p>
     </section>
   </div>;
 }

@@ -47,7 +47,8 @@ export async function installationToken(owner: string, repo: string): Promise<st
 }
 
 export function validSignature(secret: string, raw: Buffer, header: string | undefined) {
-  if (!header) return false;
+  // With nothing configured, an HMAC keyed by "" is one anyone can compute. Refuse instead.
+  if (!secret || !header) return false;
   const want = Buffer.from(`sha256=${createHmac("sha256", secret).update(raw).digest("hex")}`);
   const got = Buffer.from(header);
   return want.length === got.length && timingSafeEqual(want, got);

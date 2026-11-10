@@ -8,7 +8,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/components/ui/accordion";
 import { CopyValue } from "@/components/CopyValue";
 import { StatusPill } from "@/components/StatusPill";
-import { deployment } from "@/lib/config";
+import { NETWORK_NAME, deployment } from "@/lib/config";
 import { readNameSnapshot } from "@/lib/ens";
 import { readReleaseHistory } from "@/lib/history";
 import { verifyProject, type VerificationCheck } from "@/lib/verify";
@@ -22,7 +22,7 @@ export function ReleaseWorkspace() {
   const verification = verificationQuery.data;
   const cid = verification?.production.cid ?? prod.data?.cid;
   const loading = prod.isLoading || verificationQuery.isLoading;
-  const statusCopy = loading ? "Reading the ENS pointer, owner approval, and published files from Sepolia."
+  const statusCopy = loading ? "Reading the ENS pointer, owner approval, and published files from " + NETWORK_NAME + "."
     : verification?.status === "MATCH" ? "The production name, owner approval, and fetched files agree."
     : verification?.status === "MISMATCH" ? "One or more checks failed. Open the verifier to review this release."
     : verification?.explanation ?? "A complete release record is not available yet.";
@@ -30,7 +30,7 @@ export function ReleaseWorkspace() {
   return <div className="live-release-workspace">
     <Reveal>
       <section aria-labelledby="workspace-title" className="release-workspace">
-        <div className="workspace-heading"><div><p className="eyebrow">Release workspace / Sepolia</p><h2 id="workspace-title">What’s live. What’s next.</h2></div><Button variant="outline" size="sm" disabled={prod.isFetching || preview.isFetching || verificationQuery.isFetching || history.isFetching} onClick={() => { void prod.refetch(); void preview.refetch(); void verificationQuery.refetch(); void history.refetch(); }}>Refresh reads</Button></div>
+        <div className="workspace-heading"><div><p className="eyebrow">Release workspace / {NETWORK_NAME}</p><h2 id="workspace-title">What’s live. What’s next.</h2></div><Button variant="outline" size="sm" disabled={prod.isFetching || preview.isFetching || verificationQuery.isFetching || history.isFetching} onClick={() => { void prod.refetch(); void preview.refetch(); void verificationQuery.refetch(); void history.refetch(); }}>Refresh reads</Button></div>
         <Tabs defaultValue="production" className="workspace-body">
           <TabsList aria-label="Release workspace">
             <TabsTrigger value="production"><Globe2 className="size-4" aria-hidden="true" />Production</TabsTrigger>
@@ -41,7 +41,7 @@ export function ReleaseWorkspace() {
             <div className="flex flex-wrap items-center justify-between gap-4"><p className="eyebrow">Current production</p><StatusPill status={loading ? "LOADING" : verification?.status ?? "UNAVAILABLE"} /></div>
             <h3 className="workspace-name">{deployment.prodName}</h3>
             <p className="mt-3 max-w-2xl text-sm leading-7 text-muted-foreground">{statusCopy}</p>
-            {(prod.error || verificationQuery.error) && <p role="alert" className="mt-4 flex items-start gap-2 text-sm text-muted-foreground"><TriangleAlert className="mt-1 size-4 shrink-0" aria-hidden="true" />Production data could not be fully loaded: {(verificationQuery.error ?? prod.error) instanceof Error ? (verificationQuery.error ?? prod.error)?.message : "Sepolia read failed"}</p>}
+            {(prod.error || verificationQuery.error) && <p role="alert" className="mt-4 flex items-start gap-2 text-sm text-muted-foreground"><TriangleAlert className="mt-1 size-4 shrink-0" aria-hidden="true" />Production data could not be fully loaded: {(verificationQuery.error ?? prod.error) instanceof Error ? (verificationQuery.error ?? prod.error)?.message : `${NETWORK_NAME} read failed`}</p>}
             <div className="workspace-metrics">
               <Metric label="Approved release" value={verification?.release ? `#${verification.release}` : "Not recorded"} detail={verification?.commit ? `Commit ${verification.commit.slice(0, 8)}` : "Approval record"} loading={loading} />
               <div className="min-w-0"><p className="eyebrow">Content CID</p>{loading ? <Skeleton className="mt-3 h-5 w-36" /> : <CopyValue value={cid} className="mt-3 font-mono text-sm text-foreground">{shortCid(cid)}</CopyValue>}<p className="mt-2 text-xs text-muted-foreground">Fingerprint of the published files</p></div>
@@ -58,7 +58,7 @@ export function ReleaseWorkspace() {
             <div className="flex flex-wrap items-center justify-between gap-4"><p className="eyebrow">Next release candidate</p><StatusPill status={preview.isLoading ? "LOADING" : preview.data?.cid ? "CANDIDATE" : "UNAVAILABLE"} /></div>
             <h3 className="workspace-name">{deployment.previewName}</h3>
             <p className="mt-3 max-w-2xl text-sm leading-7 text-muted-foreground">Review the candidate, then approve it from owner controls. Production changes only after the name owner signs.</p>
-            {preview.error && <p role="alert" className="mt-4 text-sm text-muted-foreground">Preview could not be loaded: {preview.error instanceof Error ? preview.error.message : "Sepolia read failed"}</p>}
+            {preview.error && <p role="alert" className="mt-4 text-sm text-muted-foreground">Preview could not be loaded: {preview.error instanceof Error ? preview.error.message : `${NETWORK_NAME} read failed`}</p>}
             <div className="workspace-metrics sm:!grid-cols-2">
               <div className="min-w-0"><p className="eyebrow">Candidate CID</p>{preview.isLoading ? <Skeleton className="mt-3 h-5 w-36" /> : <CopyValue value={preview.data?.cid} className="mt-3 font-mono text-sm text-foreground">{shortCid(preview.data?.cid)}</CopyValue>}</div>
               <Metric label="Build manifest" value={shortCid(preview.data?.records["ensure.build"] || preview.data?.records["ensure.manifest"])} detail="Published build record" loading={preview.isLoading} />
@@ -67,9 +67,9 @@ export function ReleaseWorkspace() {
           </TabsContent>
           <TabsContent value="activity">
             <div className="flex flex-wrap items-center justify-between gap-4"><div><p className="eyebrow">Recorded on-chain</p><h3 className="mt-2 text-2xl font-medium tracking-tight">Recent releases</h3></div><Button asChild variant="ghost" size="sm"><Link to="/releases">View all <ArrowUpRight className="size-4" aria-hidden="true" /></Link></Button></div>
-            {history.isLoading ? <div className="mt-6 space-y-4"><Skeleton className="h-12" /><Skeleton className="h-12" /></div> : history.error ? <p role="alert" className="py-8 text-sm text-muted-foreground">Release events could not be read: {history.error instanceof Error ? history.error.message : "Sepolia log read failed"}</p> : history.data?.rows.length ? <div className="mt-5 divide-y divide-foreground/[0.08]">{history.data.rows.slice(0, 4).map(row => <div key={row.id} className="flex flex-wrap items-center gap-4 py-5">
+            {history.isLoading ? <div className="mt-6 space-y-4"><Skeleton className="h-12" /><Skeleton className="h-12" /></div> : history.error ? <p role="alert" className="py-8 text-sm text-muted-foreground">Release events could not be read: {history.error instanceof Error ? history.error.message : `${NETWORK_NAME} log read failed`}</p> : history.data?.rows.length ? <div className="mt-5 divide-y divide-foreground/[0.08]">{history.data.rows.slice(0, 4).map(row => <div key={row.id} className="flex flex-wrap items-center gap-4 py-5">
               <Clock3 className="size-4 text-muted-foreground" aria-hidden="true" /><div className="min-w-0 flex-1"><p className="text-sm font-medium">{row.kind === "unapproved" ? "Unapproved write" : row.kind === "rollback" ? "Rollback" : row.kind === "recovered" ? "Recovery" : `Release ${row.release ? `#${row.release}` : "promoted"}`}</p><p className="mt-1 font-mono text-xs text-muted-foreground">{shortCid(row.cid)}</p></div><span className="text-xs text-muted-foreground">{formatDate(row.timestamp)}</span>{row.txHash && etherscanTx(row.txHash) && <a href={etherscanTx(row.txHash)} target="_blank" rel="noreferrer" className="rounded-full p-2 text-muted-foreground hover:text-foreground" aria-label="View release transaction on Etherscan"><ExternalLink className="size-4" /></a>}
-            </div>)}</div> : <div className="flex items-start gap-3 py-10 text-sm text-muted-foreground"><Clock3 className="mt-1 size-4 shrink-0" aria-hidden="true" /><div><p>No production release events found.</p><p className="mt-2 text-xs leading-6 text-muted-foreground">{history.data?.note ?? "Releases will appear here when recorded on Sepolia."}</p></div></div>}
+            </div>)}</div> : <div className="flex items-start gap-3 py-10 text-sm text-muted-foreground"><Clock3 className="mt-1 size-4 shrink-0" aria-hidden="true" /><div><p>No production release events found.</p><p className="mt-2 text-xs leading-6 text-muted-foreground">{history.data?.note ?? "Releases will appear here when recorded on-chain."}</p></div></div>}
           </TabsContent>
         </Tabs>
       </section>

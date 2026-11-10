@@ -6,7 +6,7 @@ import { jcs, typedApproval, type Envelope } from "../../../tools/ensure-sepolia
 import { bytesCid, resolverAbi as ownerResolverAbi, signedBuildHash } from "../../../tools/ensure-sepolia/scripts/owner-promote-shared";
 import { GatewayContentMismatchError, GatewayUnavailableError, IntegrityError, verifyBuild, type BuildCheck } from "../../../tools/ensure-sepolia/scripts/build-check";
 import { ACTION_ROLLBACK, ReleaseProofError, prodAuthorityProblem, readControllerState, verifyV2Release } from "../../../tools/ensure-sepolia/scripts/controller-v2";
-import { GATEWAYS, deployment, publicClient, resolverForName } from "./config";
+import { GATEWAYS, NETWORK_NAME, deployment, publicClient, resolverForName } from "./config";
 import { cidFromPointer } from "./ipfs";
 
 export type { BuildCheck };
@@ -150,7 +150,7 @@ async function checkLegacyApproval(prod: ProdRecords, projectName: string, prodN
   if (!contextOk) throw new IntegrityError("Signed approval name, resolver, resource, chain, current owner or release checkpoint does not match live ENSv2 state");
   const recovered = await recoverTypedDataAddress({ ...typedApproval(core), signature: envelope.signature });
   if (!equalAddress(recovered, currentOwner)) throw new IntegrityError(`EIP-712 signer ${recovered} is not the current ENS parent-name owner ${currentOwner}`);
-  if (BigInt(core.issuedAt) > now || BigInt(core.validUntil) <= now || BigInt(core.validUntil) <= BigInt(core.issuedAt)) throw new IntegrityError("Owner approval has expired or is not yet valid at the Sepolia snapshot");
+  if (BigInt(core.issuedAt) > now || BigInt(core.validUntil) <= now || BigInt(core.validUntil) <= BigInt(core.issuedAt)) throw new IntegrityError("Owner approval has expired or is not yet valid at the snapshot");
   if (!sameCid(core.cid, prod.cid!)) throw new IntegrityError("Production ENS contenthash CID differs from the signed release CID");
   result.release = core.release;
   result.commit = core.commit;
@@ -220,13 +220,13 @@ async function verifyOnce(nameInput: string, onCheck?: (check: VerificationCheck
     production: { name: prodName, detail: "Not checked" },
     preview: { name: previewName, detail: "Not checked" },
   };
-  let currentStep = "Sepolia RPC";
+  let currentStep = `${NETWORK_NAME} RPC`;
   try {
     const chainId = await publicClient.getChainId();
-    if (chainId !== deployment.chainId) throw new Error(`Configured read client is on chain ${chainId}; expected Sepolia ${deployment.chainId}`);
+    if (chainId !== deployment.chainId) throw new Error(`Configured read client is on chain ${chainId}; expected ${NETWORK_NAME} ${deployment.chainId}`);
     const block = await publicClient.getBlock();
     result.blockNumber = block.number;
-    append(checks, "network", "Sepolia snapshot", "pass", `Chain ${chainId} · block ${block.number}`, onCheck);
+    append(checks, "network", `${NETWORK_NAME} snapshot`, "pass", `Chain ${chainId} · block ${block.number}`, onCheck);
 
     const platform = deployment.platform;
     if (platform && input.endsWith(`.${platform.name.toLowerCase()}`)) {
@@ -359,7 +359,7 @@ async function verifyOnce(nameInput: string, onCheck?: (check: VerificationCheck
 
     const snapshotHash = block.hash;
     if (snapshotHash && (await publicClient.getBlock({ blockNumber: block.number })).hash !== snapshotHash) throw new IntegrityError("Sepolia block changed during verification; retry against a stable snapshot");
-    append(checks, "snapshot", "Sepolia snapshot remained stable", "pass", `Verification reads correspond to block ${block.number}`, onCheck);
+    append(checks, "snapshot", `${NETWORK_NAME} snapshot remained stable`, "pass", `Verification reads correspond to block ${block.number}`, onCheck);
     result.status = "MATCH";
     result.explanation = "The live production name, current owner signature, build manifest and fetched file hashes agree. This checks release integrity; it does not audit the site's code for vulnerabilities.";
     return result;

@@ -3,9 +3,9 @@ import { Hono } from "hono";
 import { streamSSE } from "hono/streaming";
 import { createPublicClient, createWalletClient, http, namehash, toBytes, type Address } from "viem";
 import { privateKeyToAccount } from "viem/accounts";
-import { sepolia } from "viem/chains";
+import { mainnet, sepolia } from "viem/chains";
 import { z } from "zod";
-import { deployRegistryAbi, registryAbi, dnsEncode } from "@ensure/core/ens";
+import { NETWORKS, deployRegistryAbi, registryAbi, dnsEncode, siteUrl, type Network } from "@ensure/core/ens";
 import { pinRelease, prodWriteBlocked, publishName, type PinConfig } from "@ensure/core/pipeline";
 import type { Deploy, Receipt } from "@ensure/core/api";
 import { requireUser, type Env } from "./auth";
@@ -15,10 +15,18 @@ import { installationToken } from "./github";
 import { ipnsPublish } from "./ipns";
 import { candidateEventId, recordReleaseEvent } from "@ensure/arkiv";
 
-export const chain = () => {
-  const transport = http(process.env.SEPOLIA_RPC_URL, { timeout: 60_000 });
-  const account = privateKeyToAccount(process.env.PUBLISHER_PRIVATE_KEY as `0x${string}`);
-  return { public: createPublicClient({ chain: sepolia, transport }), wallet: createWalletClient({ chain: sepolia, transport, account }), account: account.address as Address };
+/** Mainnet spends real ETH, so it needs its own key and never falls back to the testnet one. */
+const normalizeKey = (key: string) => (key.startsWith("0x") ? key : `0x${key}`) as `0x${string}`;
+/** A malformed key (an address pasted by mistake, say) means mainnet is off, never a crash. */
+export const mainnetReady = () => Boolean(process.env.MAINNET_RPC_URL && /^(0x)?[0-9a-fA-F]{64}$/.test(process.env.MAINNET_PUBLISHER_PRIVATE_KEY?.trim() ?? ""));
+
+export const chain = (network: Network = "sepolia") => {
+  if (network === "mainnet" && !mainnetReady()) throw Object.assign(new Error("Mainnet isn't configured on this server. Set MAINNET_RPC_URL, and MAINNET_PUBLISHER_PRIVATE_KEY to a 32-byte private key (not an address)"), { status: 409 });
+  const onMainnet = network === "mainnet";
+  const transport = http(onMainnet ? process.env.MAINNET_RPC_URL : process.env.SEPOLIA_RPC_URL, { timeout: 60_000 });
+  const account = privateKeyToAccount(normalizeKey((onMainnet ? process.env.MAINNET_PUBLISHER_PRIVATE_KEY! : process.env.PUBLISHER_PRIVATE_KEY!).trim()));
+  const viemChain = onMainnet ? mainnet : sepolia;
+  return { public: createPublicClient({ chain: viemChain, transport }), wallet: createWalletClient({ chain: viemChain, transport, account }), account: account.address as Address };
 };
 export const pinConfig = (): PinConfig => ({
   jwt: process.env.PINATA_JWT ?? "",
@@ -28,7 +36,6 @@ export const pinConfig = (): PinConfig => ({
   retryMs: process.env.IPFS_RETRY_MS ? Number(process.env.IPFS_RETRY_MS) : undefined,
 });
 const platform = () => ({ registry: process.env.PLATFORM_REGISTRY as Address, resolver: process.env.PLATFORM_RESOLVER as Address });
-const openUrl = (cid: string) => `https://ipfs.filebase.io/ipfs/${cid}/`; // ipfs.io and dweb.link rate-limit too hard to rely on
 
 const toDeploy = (r: any): Deploy => ({
   id: r.id, projectId: r.project_id, commitSha: r.commit_sha, status: r.status, dryRun: r.dry_run, error: r.error, receipt: r.receipt, createdAt: r.created_at,
@@ -124,7 +131,7 @@ async function runStages(d: any, log: (l: string) => void, stage: (s: string) =>
       log(`${p.branch} has moved past ${sha}. Not publishing`);
       return { status: "superseded", receipt: null };
     }
-    const c = chain();
+    const c = chain(p.network);
     const target = p.mode === "quick" ? p.name : p.preview_name;
     const result = await withChainLock(async () => {
       if (p.mode === "quick") await ensureQuickName(c, p.name, log);
@@ -135,14 +142,15 @@ async function runStages(d: any, log: (l: string) => void, stage: (s: string) =>
         if (!blocked) throw new Error("Publisher can write production. Revoke its production role");
         log("Confirmed: this key can't write production");
       }
-      const logTxHash = await logOnChain(c, target, pinned.siteCid, p.mode === "quick" ? "production" : "preview", `commit:${sha}`, log);
+      // The on-chain deploy log only exists on Sepolia.
+      const logTxHash = p.network !== "sepolia" ? undefined : await logOnChain(c, target, pinned.siteCid, p.mode === "quick" ? "production" : "preview", `commit:${sha}`, log);
       return { txHash, blocked, logTxHash };
     });
     const ipns = await ipnsPublish(p as any, pinned.siteCid, log);
     const receipt: Receipt = {
       commitSha: sha, repositoryId: p.repo_id, siteCid: pinned.siteCid, manifestCid: pinned.manifestCid, manifestDigest: pinned.manifestDigest,
       commitDigest: pinned.commitDigest, contenthash: pinned.contenthash, name: target, txHash: result.txHash, logTxHash: result.logTxHash,
-      ipns, prodWriteBlocked: result.blocked, url: openUrl(pinned.siteCid),
+      ipns, prodWriteBlocked: result.blocked, url: siteUrl(p.network, target, pinned.siteCid),
     };
     if (p.mode === "custom") {
       try {
@@ -156,7 +164,7 @@ async function runStages(d: any, log: (l: string) => void, stage: (s: string) =>
           siteCid: pinned.siteCid,
           commitDigest: pinned.commitDigest,
           sourceTx: result.txHash,
-          sourceChain: 11155111,
+          sourceChain: NETWORKS[p.network as Network].chainId,
         });
         log(`Arkiv candidate: ${recorded.entityKey}${"txHash" in recorded ? ` (${recorded.txHash})` : " (already recorded)"}`);
       } catch (error) {
