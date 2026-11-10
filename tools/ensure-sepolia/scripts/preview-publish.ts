@@ -16,12 +16,15 @@ import {
   TransactionReceiptNotFoundError, type Address, type Hex,
 } from 'viem';
 import { privateKeyToAccount } from 'viem/accounts';
-import { sepolia } from 'viem/chains';
+import { mainnet, sepolia } from 'viem/chains';
 import { B, BUILD_KEY, CHAIN_ID, loadConfig, same, isMain, fatal } from './config.js';
 import { contenthash } from './content.js';
 import { dnsEncode } from './names.js';
 
-const LIVE_RPC = process.env.SEPOLIA_RPC_URL ?? 'https://ethereum-sepolia-rpc.publicnode.com';
+const ON_MAINNET = process.env.ENSURE_NETWORK === 'mainnet';
+const LIVE_CHAIN = ON_MAINNET ? mainnet : sepolia;
+const LIVE_RPC = ON_MAINNET ? process.env.MAINNET_RPC_URL ?? 'https://ethereum-rpc.publicnode.com' : process.env.SEPOLIA_RPC_URL ?? 'https://ethereum-sepolia-rpc.publicnode.com';
+const EXPLORER = ON_MAINNET ? 'https://etherscan.io' : 'https://sepolia.etherscan.io';
 const MAX_GAS_PRICE = 2_000_000_000n;
 
 type Args = { siteCid: string; manifestCid: string; expectedContenthash?: Hex };
@@ -54,8 +57,10 @@ function parseArgs(argv: string[]): Args {
 }
 
 function requireCiKey(): Hex {
-  const key = process.env.CI_PRIVATE_KEY;
-  if (!key || !/^0x[0-9a-fA-F]{64}$/.test(key)) throw new Error('Set CI_PRIVATE_KEY to a 0x-prefixed 32-byte hex key');
+  // Mainnet spends real ETH, so it never falls back to the testnet key.
+  const name = ON_MAINNET ? 'MAINNET_PUBLISHER_PRIVATE_KEY' : 'CI_PRIVATE_KEY';
+  const key = process.env[name];
+  if (!key || !/^0x[0-9a-fA-F]{64}$/.test(key)) throw new Error(`Set ${name} to a 0x-prefixed 32-byte hex key`);
   return key as Hex;
 }
 
@@ -71,19 +76,20 @@ async function mined(client: ReturnType<typeof createPublicClient>, hash: Hex) {
 
 export async function publishPreview(args: Args) {
   const c = loadConfig();
-  if (c.mode !== 'sepolia' || c.chainId !== CHAIN_ID) throw new Error('Expected live Sepolia deployments/sepolia.json');
+  if (c.mode !== (ON_MAINNET ? 'mainnet' : 'sepolia') || c.chainId !== LIVE_CHAIN.id) throw new Error(`Expected a live ${LIVE_CHAIN.name} deployment file`);
+  if (!c.projectName) throw new Error('This network has no project yet. Run the Setup page, then pnpm sync-deployment');
   const account = privateKeyToAccount(requireCiKey());
-  if (!same(account.address, c.ci)) throw new Error(`CI key address ${account.address} does not match deployments/sepolia.json ci`);
+  if (!same(account.address, c.ci)) throw new Error(`CI key address ${account.address} does not match the deployment file's ci`);
 
   if (same(c.previewResolver, c.prodResolver)) throw new Error('Unsafe shared prod/preview resolver');
   if (!same(c.previewName, `preview.${c.projectName}`)) throw new Error(`Unexpected preview name: ${c.previewName}`);
   const target = c.previewResolver as Address;
 
-  const client = createPublicClient({ chain: sepolia, transport: http(LIVE_RPC, { timeout: 45_000 }), cacheTime: 0 });
+  const client = createPublicClient({ chain: LIVE_CHAIN, transport: http(LIVE_RPC, { timeout: 45_000 }), cacheTime: 0 });
   const chainId = await client.getChainId();
-  if (chainId !== CHAIN_ID) throw new Error(`Wrong chain: ${chainId}`);
+  if (chainId !== LIVE_CHAIN.id) throw new Error(`Wrong chain: ${chainId}`);
   const version = await client.request({ method: 'web3_clientVersion' });
-  if (String(version).toLowerCase().includes('anvil')) throw new Error('Refusing Anvil; live Sepolia only');
+  if (String(version).toLowerCase().includes('anvil')) throw new Error('Refusing Anvil; live networks only');
 
   const ch = contenthash(args.siteCid);
   if (args.expectedContenthash && !same(ch, args.expectedContenthash)) {
@@ -116,11 +122,11 @@ export async function publishPreview(args: Args) {
   const bal = await client.getBalance({ address: account.address, blockTag: 'pending' });
   if (bal < cost) throw new Error('CI balance too low for estimated gas');
 
-  const wallet = createWalletClient({ chain: sepolia, account, transport: http(LIVE_RPC) });
+  const wallet = createWalletClient({ chain: LIVE_CHAIN, account, transport: http(LIVE_RPC) });
   const hash = await wallet.writeContract({
     address: target, abi: B.resolver, functionName: 'multicall', args: [calls], gas, ...fees,
   });
-  const explorer = `https://sepolia.etherscan.io/tx/${hash}`;
+  const explorer = `${EXPLORER}/tx/${hash}`;
   console.log('SUBMITTED', explorer);
 
   const receipt = await mined(client, hash);

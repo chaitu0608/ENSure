@@ -1,5 +1,6 @@
 // Types shared by the server and every client, so they can't drift.
 export type NameMode = "quick" | "custom";
+export type { Network } from "./ens";
 export type DeployStatus = "queued" | "running" | "live" | "preview" | "built" | "superseded" | "failed";
 
 export type Receipt = {
@@ -37,6 +38,7 @@ export type Project = {
   outputDir: string | null;
   mode: NameMode;
   name: string;
+  network: import("./ens").Network;
   previewName: string | null;
   lastDeploy: { status: DeployStatus; createdAt: string } | null;
 };

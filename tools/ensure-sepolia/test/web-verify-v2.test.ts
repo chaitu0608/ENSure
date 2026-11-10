@@ -21,6 +21,7 @@ const chain = vi.hoisted(() => ({ client: {} as Record<string, unknown> }));
 vi.mock('../../../web/src/lib/config', () => ({
   get deployment() { return deployment.value; },
   get publicClient() { return chain.client; },
+  NETWORK_NAME: 'Sepolia',
   GATEWAYS: ['https://gateway.test'],
   resolverForName: (name: string) => (name.startsWith('prod.') ? addr(0xa2) : addr(0xa3)),
 }));

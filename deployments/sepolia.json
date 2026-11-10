@@ -27,7 +27,7 @@
   "history": [
     {
       "type": "note",
-      "message": "This deployment is on Sepolia (testnet) and does not represent mainnet ENS registrar ownership of ritwik.eth. Mainnet .eth registration must be done via ENS registrar flow."
+      "message": "This deployment is on Sepolia (testnet) and does not represent mainnet ENS registrar ownership of ritwikm.eth. Mainnet .eth registration must be done via ENS registrar flow."
     }
   ],
   "releaseController": null,
@@ -76,5 +76,5 @@
       }
     }
   },
-  "historyFromBlock": 12080587
+  "historyFromBlock": 12082980
 }

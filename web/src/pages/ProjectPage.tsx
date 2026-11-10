@@ -12,7 +12,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Dialog, DialogContent, DialogDescription, DialogTitle } from "@/components/ui/dialog";
 import { Skeleton } from "@/components/ui/skeleton";
 import { api, eventsUrl, isFinished, type DeployRow } from "@/lib/api";
-import { deployment, publicClient } from "@/lib/config";
+import { NETWORK, deployment, publicClient, switchNetwork } from "@/lib/config";
 import { cn, etherscanTx, formatDate, shortCid } from "@/lib/utils";
 import { ErrorNote } from "./DeployPage";
 
@@ -139,6 +139,7 @@ export function ProjectPage() {
   if (project.error || !project.data) return <ErrorNote message={(project.error as Error)?.message ?? "Project not found"} />;
   const p = project.data;
   const target = p.mode === "custom" ? p.previewName! : p.name;
+  if (p.network !== NETWORK) return <div className="space-y-4"><p className="text-sm text-muted-foreground">This project is on {p.network}.</p><Button variant="secondary" onClick={() => switchNetwork(p.network)}>Switch to {p.network}</Button></div>;
   const latestLive = deploys.data?.find((d) => d.status === "live");
 
   return <div className="space-y-6">

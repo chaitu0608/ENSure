@@ -1,5 +1,7 @@
 import { clsx, type ClassValue } from "clsx";
 import { twMerge } from "tailwind-merge";
+import { explorerBase } from "@ensure/core/ens";
+import { NETWORK } from "./config";
 
 export function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs));
@@ -16,5 +18,8 @@ export function formatDate(value?: string | number) {
 }
 
 export function etherscanTx(hash?: string) {
-  return hash ? `https://sepolia.etherscan.io/tx/${hash}` : undefined;
+  return hash ? `${explorerBase(NETWORK)}/tx/${hash}` : undefined;
 }
+
+export const explorerAddress = (address: string) => `${explorerBase(NETWORK)}/address/${address}`;
+export const explorerBlock = (block: bigint | string) => `${explorerBase(NETWORK)}/block/${block}`;

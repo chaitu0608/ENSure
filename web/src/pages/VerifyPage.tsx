@@ -5,10 +5,10 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { AuthorityPanel } from "@/components/AuthorityPanel";
-import { deployment } from "@/lib/config";
+import { AuthorityPanel, QuickNameAuthorityPanel } from "@/components/AuthorityPanel";
+import { NETWORK_NAME, deployment } from "@/lib/config";
 import { verifyProject, type Verification, type VerificationCheck } from "@/lib/verify";
-import { shortAddress, shortCid, formatDate } from "@/lib/utils";
+import { explorerAddress, explorerBlock, shortAddress, shortCid, formatDate } from "@/lib/utils";
 
 const stateIcon = { pass: Check, fail: X, unavailable: CircleHelp, info: CircleHelp } as const;
 const phases = [
@@ -55,7 +55,7 @@ export function VerifyPage() {
         <label htmlFor="verify-ens-name" className="mb-3 block text-sm font-medium">Which name should we check?</label>
         <div className="relative"><Search className="absolute left-4 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" aria-hidden="true" /><Input id="verify-ens-name" value={name} onChange={event => setName(event.target.value)} placeholder={deployment.projectName} className="h-14 pl-11 font-mono text-base" spellCheck={false} autoComplete="off" /></div>
         <Button type="submit" size="lg" disabled={running || !name.trim()} className="mt-4 w-full">{running ? <><LoaderCircle className="size-4 animate-spin" />Inspecting release…</> : <>Verify release <ArrowRight className="size-4" /></>}</Button>
-        <p className="mt-5 text-xs text-muted-foreground">ENSv2 on Sepolia · Production + preview</p>
+        <p className="mt-5 text-xs text-muted-foreground">ENSv2 on {NETWORK_NAME} · Production + preview</p>
       </form>
     </header>
     {requestError && <div role="alert" className="mb-8 rounded-2xl border border-foreground/20 px-5 py-4 text-sm leading-6">Verification failed to run: {requestError}</div>}
@@ -82,14 +82,14 @@ export function VerifyPage() {
               <DataLine label="Snapshot block" value={result.blockNumber?.toString() ?? "Unavailable"} mono /><DataLine label="Gateway used" value={result.gateway ? new URL(result.gateway).host : "Not fetched"} />
             </dl><div className="record-links">
               {result.siteUrl && <RecordLink href={result.siteUrl}>IPFS site</RecordLink>}{result.buildManifestUrl && <RecordLink href={result.buildManifestUrl}>Build manifest</RecordLink>}{result.approvalManifestUrl && <RecordLink href={result.approvalManifestUrl}>Owner approval</RecordLink>}
-              {result.blockNumber !== undefined && <RecordLink href={`https://sepolia.etherscan.io/block/${result.blockNumber}`}>Snapshot block</RecordLink>}<RecordLink href={`https://sepolia.etherscan.io/address/${result.production.resolver ?? deployment.prodResolver}`}>Production resolver</RecordLink>
+              {result.blockNumber !== undefined && <RecordLink href={explorerBlock(result.blockNumber)}>Snapshot block</RecordLink>}<RecordLink href={explorerAddress(result.production.resolver ?? deployment.prodResolver)}>Production resolver</RecordLink>
             </div></>}</TabsContent>
             <TabsContent value="environments">{result && <div className="environment-comparison"><EnvironmentSummary title="Production" detail="Owner-approved environment" environment={result.production} /><ArrowLeftRight className="comparison-arrow" aria-hidden="true" /><EnvironmentSummary title="Preview" detail="Next release candidate" environment={result.preview} /></div>}</TabsContent>
           </Tabs>
         </div>
       </motion.section> : <motion.section key="plan" initial={reduceMotion ? false : { opacity: 0 }} animate={{ opacity: 1 }} exit={reduceMotion ? undefined : { opacity: 0 }} className="verification-plan" aria-labelledby="verification-plan-title"><div><p className="eyebrow">Under the hood</p><h2 id="verification-plan-title" className="mt-3 text-2xl font-medium tracking-tight">Three layers of proof.</h2></div><ol className="verification-phases">{phases.map(({ title, detail, icon: Icon }, index) => <li key={title}><span className="phase-icon"><Icon strokeWidth={1.4} aria-hidden="true" /></span><span className="eyebrow">0{index + 1}</span><h3>{title}</h3><p>{detail}</p></li>)}</ol></motion.section>}
     </AnimatePresence>
-    <AuthorityPanel />
+    {isUnprotected && result ? <QuickNameAuthorityPanel name={result.name} /> : <AuthorityPanel />}
   </div>;
 }
 

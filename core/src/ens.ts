@@ -4,6 +4,8 @@ import { concat, encodeFunctionData, decodeFunctionResult, hexToBytes, keccak256
 import { normalize, packetToBytes } from "viem/ens";
 
 export const SEPOLIA = {
+  chainId: 11155111,
+  rootRegistry: "0xb458d6a3a77919449d03e7a6903c26827c1ec43f",
   universalResolver: "0xeEeEEEeE14D718C2B47D9923Deab1335E144EeEe",
   universalHelper: "0xd453e5bdb62cc3bea84341b1e306319c8ffd7dfe",
   ethRegistry: "0xd4ebcbbdf463c9c45784603db0ddd499bc44a8b4",
@@ -12,7 +14,29 @@ export const SEPOLIA = {
   verifiableFactory: "0xda70306c98e97ece36f997a21368e53298572991",
   resolverImpl: "0x115eb53f0c60696633855f90b138178fb40b2b2c",
   registryImpl: "0x9bd8a88719068d09ecee662f36c0e3856708366a",
-} as const satisfies Record<string, Address>;
+} as const;
+
+// ENSv2 went live on mainnet on 2026-10-27. Addresses from docs.ens.domains/learn/deployments, checked on-chain.
+export const MAINNET = {
+  chainId: 1,
+  rootRegistry: "0x2553c09be6447beffdb86fa622ad41fb8f77a91e",
+  universalResolver: "0xeEeEEEeE14D718C2B47D9923Deab1335E144EeEe",
+  universalHelper: "0x46ae127d14683ac74ef151e46ae2117a1a25c676",
+  ethRegistry: "0xf60aba43e1f7f3dab1186ff03b561401c9df85e2",
+  ethRegistrar: "0xd6d8369e55c94ae8afa714e6cf7ab5be54d5cc81",
+  verifiableFactory: "0x77510ba162dfea3d8989e3f0928a691b345730d2",
+  resolverImpl: "0x565b0f456a04ac9b48758190e90030623cff57c5",
+  registryImpl: "0xfaa23592aca10a6d8875b18ea86954e8eb6d8d72",
+} as const;
+
+export const NETWORKS = { sepolia: SEPOLIA, mainnet: MAINNET } as const;
+export type Network = keyof typeof NETWORKS;
+export const networkOfChain = (chainId?: number): Network => (chainId === MAINNET.chainId ? "mainnet" : "sepolia");
+export const explorerBase = (network: Network) => (network === "mainnet" ? "https://etherscan.io" : "https://sepolia.etherscan.io");
+
+/** eth.limo serves ENSv2 names on mainnet, so the ENS name stays in the URL bar. It has no working Sepolia gateway, so testnet opens the CID. */
+export const siteUrl = (network: Network, name: string, cid: string) =>
+  network === "mainnet" ? `https://${name}.limo/` : `https://ipfs.filebase.io/ipfs/${cid}/`;
 
 const admin = (r: bigint) => r << 128n;
 export const withAdmin = (...roles: bigint[]) => roles.reduce((a, r) => a | r | admin(r), 0n);
@@ -44,6 +68,7 @@ export const registryAbi = parseAbi([
   "function hasRootRoles(uint256 roleBitmap, address account) view returns (bool)",
   "function ownerOf(uint256 tokenId) view returns (address)",
   "function getTokenId(uint256 anyId) view returns (uint256)",
+  "function getState(uint256 anyId) view returns ((uint8 status, uint64 expiry, address latestOwner, uint256 tokenId, uint256 resource))",
   "function initialize((address account, uint256 roleBitmap)[] grants)",
 ]);
 export const resolverAbi = parseAbi([
@@ -54,6 +79,7 @@ export const resolverAbi = parseAbi([
   "function revokeRootRoles(uint256 roleBitmap, address account) returns (bool)",
   "function grantSetterRoles(bytes setter, address account) returns (bool)",
   "function hasRootRoles(uint256 roleBitmap, address account) view returns (bool)",
+  "function hasRoles(uint256 resource, uint256 roleBitmap, address account) view returns (bool)",
   "function initialize((address account, uint256 roleBitmap)[] grants, bytes[] calls)",
   "function contenthash(bytes32 node) view returns (bytes)",
   "function text(bytes32 node, string key) view returns (string)",
@@ -78,7 +104,7 @@ export const testUsdcAbi = parseAbi([
   "function mint(address to, uint256 amount)",
   "function approve(address spender, uint256 amount) returns (bool)",
 ]);
-export const helperAbi = parseAbi(["function findExactOwner(bytes name) view returns (address)"]);
+export const helperAbi = parseAbi(["function findExactOwner(bytes name) view returns (address)", "function findExactRegistry(bytes name) view returns (address)"]);
 export const deployRegistryAbi = parseAbi([
   "function logDeploy(bytes32 node, bytes cid, string env, string meta)",
   "function setPublisher(bytes dnsName, address publisher, bool allowed)",
@@ -110,11 +136,12 @@ export const publishCalls = (name: string, contenthash: Hex, manifestCid: string
   ];
 };
 
-type Reader = { readContract: (args: any) => Promise<any> };
+type Reader = { readContract: (args: any) => Promise<any>; chain?: { id: number } };
+const addressesFor = (client: Reader) => NETWORKS[networkOfChain(client.chain?.id)];
 
 async function resolveCall(client: Reader, name: string, data: Hex, functionName: "contenthash" | "text") {
   const [result, resolver] = await client.readContract({
-    address: SEPOLIA.universalResolver,
+    address: addressesFor(client).universalResolver,
     abi: universalResolverAbi,
     functionName: "resolve",
     args: [dnsEncode(name), data],
@@ -135,7 +162,7 @@ export async function readText(client: Reader, name: string, key: string) {
 
 export async function findResolver(client: Reader, name: string): Promise<Address> {
   const [resolver] = await client.readContract({
-    address: SEPOLIA.universalResolver,
+    address: addressesFor(client).universalResolver,
     abi: universalResolverAbi,
     functionName: "findResolver",
     args: [dnsEncode(name)],
@@ -144,4 +171,4 @@ export async function findResolver(client: Reader, name: string): Promise<Addres
 }
 
 export const findOwner = (client: Reader, name: string): Promise<Address> =>
-  client.readContract({ address: SEPOLIA.universalHelper, abi: helperAbi, functionName: "findExactOwner", args: [dnsEncode(name)] });
+  client.readContract({ address: addressesFor(client).universalHelper, abi: helperAbi, functionName: "findExactOwner", args: [dnsEncode(name)] });

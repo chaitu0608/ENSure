@@ -1,9 +1,11 @@
 /// <reference types="vite/client" />
 import { fallback, http, createPublicClient, type Address } from "viem";
-import { sepolia } from "viem/chains";
-import deploymentFile from "../../../deployments/sepolia.json";
+import { mainnet, sepolia } from "viem/chains";
+import sepoliaFile from "../../../deployments/sepolia.json";
+import mainnetFile from "../../../deployments/mainnet.json";
 
-export type Deployment = Omit<typeof deploymentFile, "releaseController" | "protocol" | "legacyBuildManifests"> & {
+export type Network = "sepolia" | "mainnet";
+export type Deployment = Omit<typeof sepoliaFile, "releaseController" | "protocol" | "legacyBuildManifests" | "platform"> & {
   protocol: {
     rootRegistry: Address;
     ethRegistry: Address;
@@ -16,9 +18,41 @@ export type Deployment = Omit<typeof deploymentFile, "releaseController" | "prot
   releaseController: Address | null;
   /** Build manifests CI published for legacy releases whose prod ensure.build was never written. Keyed by site CID. */
   legacyBuildManifests: Record<string, string>;
+  /** Quick names. Sepolia only. */
+  platform: { name: string; registry: string; resolver: string } | null;
 };
 
-export const deployment = deploymentFile as unknown as Deployment;
+const NETWORK_KEY = "ensure.network";
+function readNetwork(): Network {
+  try {
+    const fromUrl = new URLSearchParams(window.location.search).get("network");
+    if (fromUrl === "mainnet" || fromUrl === "sepolia") {
+      window.localStorage.setItem(NETWORK_KEY, fromUrl);
+      return fromUrl;
+    }
+    return window.localStorage.getItem(NETWORK_KEY) === "mainnet" ? "mainnet" : "sepolia";
+  } catch {
+    return "sepolia";
+  }
+}
+
+export const NETWORK: Network = readNetwork();
+export const isMainnet = NETWORK === "mainnet";
+export const NETWORK_NAME = isMainnet ? "Mainnet" : "Sepolia";
+export const activeChain = isMainnet ? mainnet : sepolia;
+
+/** Every client and address below is chosen once at load, so switching reloads the page. */
+export function switchNetwork(network: Network) {
+  try { window.localStorage.setItem(NETWORK_KEY, network); } catch { /* The URL below still carries the choice. */ }
+  const url = new URL(window.location.href);
+  url.searchParams.set("network", network);
+  window.location.assign(url.toString());
+}
+
+export const deployment = (isMainnet ? mainnetFile : sepoliaFile) as unknown as Deployment;
+/** False until this network has a project, which the Setup page creates. */
+export const projectReady = Boolean(deployment.projectName);
+
 export const GATEWAYS = [
   import.meta.env.VITE_PINATA_GATEWAY,
   deployment.pinataGateway,
@@ -28,14 +62,16 @@ export const GATEWAYS = [
   "https://dweb.link",
 ].filter((value): value is string => Boolean(value)).map((value) => value.replace(/\/$/, ""));
 
-const configuredRpc = import.meta.env.VITE_SEPOLIA_RPC_URL?.trim();
-export const sepoliaRpc = fallback([
+const configuredRpc = (isMainnet ? import.meta.env.VITE_MAINNET_RPC_URL : import.meta.env.VITE_SEPOLIA_RPC_URL)?.trim();
+const publicRpcs = isMainnet
+  ? ["https://ethereum-rpc.publicnode.com", "https://eth.drpc.org"]
+  : ["https://ethereum-sepolia-rpc.publicnode.com", "https://rpc.sepolia.org"];
+export const rpcTransport = fallback([
   ...(configuredRpc ? [http(configuredRpc, { timeout: 10_000, retryCount: 1 })] : []),
-  http("https://ethereum-sepolia-rpc.publicnode.com", { timeout: 10_000, retryCount: 1 }),
-  http("https://rpc.sepolia.org", { timeout: 10_000, retryCount: 1 }),
+  ...publicRpcs.map((url) => http(url, { timeout: 10_000, retryCount: 1 })),
 ], { retryCount: 0 });
 
-export const publicClient = createPublicClient({ chain: sepolia, transport: sepoliaRpc });
+export const publicClient = createPublicClient({ chain: activeChain, transport: rpcTransport });
 
 export function resolverForName(name: string): Address | undefined {
   if (name.toLowerCase() === deployment.prodName.toLowerCase()) return deployment.prodResolver as Address;

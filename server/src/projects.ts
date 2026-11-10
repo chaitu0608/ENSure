@@ -2,7 +2,7 @@
 import { Hono } from "hono";
 import { isAddress, namehash, type Address, type Hex } from "viem";
 import { z } from "zod";
-import { RESOLVER_ROLES, findResolver, readText, resolverAbi, dnsEncode } from "@ensure/core/ens";
+import { RESOLVER_ROLES, findResolver, readText, resolverAbi, dnsEncode, type Network } from "@ensure/core/ens";
 import { recordControllerEventFromTransaction } from "@ensure/arkiv";
 import { publishName } from "@ensure/core/pipeline";
 import type { Project } from "@ensure/core/api";
@@ -15,10 +15,11 @@ import { NAME, generateQuickName, isVerified } from "./names";
 
 const toProject = (r: any): Project => ({
   id: r.id, repoUrl: `https://github.com/${r.owner}/${r.repo}`, branch: r.branch, subfolder: r.subfolder, outputDir: r.output_dir,
-  mode: r.mode, name: r.name, previewName: r.preview_name, lastDeploy: r.last_status ? { status: r.last_status, createdAt: r.last_at } : null,
+  mode: r.mode, name: r.name, network: r.network, previewName: r.preview_name, lastDeploy: r.last_status ? { status: r.last_status, createdAt: r.last_at } : null,
 });
 
-export async function createProject(u: { id: string; githubToken: string | null }, input: { repoUrl: string; branch?: string; subfolder?: string; outputDir?: string; name?: string }) {
+export async function createProject(u: { id: string; githubToken: string | null }, input: { repoUrl: string; branch?: string; subfolder?: string; outputDir?: string; name?: string; network?: Network }) {
+  const network = input.network ?? "sepolia";
   const ref = parseRepoUrl(input.repoUrl);
   const info = await repoAccess(ref.owner, ref.repo, u.githubToken);
   const subfolder = input.subfolder ?? ref.subfolder;
@@ -29,20 +30,25 @@ export async function createProject(u: { id: string; githubToken: string | null 
   let row: Record<string, unknown>;
   if (input.name) {
     if (!NAME.test(input.name)) throw Object.assign(new Error("Custom names must look like project.eth"), { status: 400 });
-    if (!(await isVerified(input.name, u.id))) throw Object.assign(new Error(`Prove you own ${input.name} first`), { status: 403 });
-    const c = chain();
+    if (!(await isVerified(input.name, u.id, network))) throw Object.assign(new Error(`Prove you own ${input.name} first`), { status: 403 });
+    const c = chain(network);
     const previewName = `preview.${input.name}`;
     const resolver = await findResolver(c.public, previewName).catch(() => null);
     const prodResolver = await findResolver(c.public, `prod.${input.name}`).catch(() => null);
     const canWrite = resolver && await c.public.readContract({ address: resolver, abi: resolverAbi, functionName: "hasRootRoles", args: [RESOLVER_ROLES.SET_CONTENTHASH, c.account] }).catch(() => false);
-    if (!canWrite) throw Object.assign(new Error(`${previewName} isn't set up for this server. Run: pnpm setup-ens project ${input.name}`), { status: 409 });
+    if (!canWrite) throw Object.assign(new Error(`${previewName} isn't set up for this server's publisher ${c.account}. Run the Setup page for ${input.name} on ${network} first${network === "sepolia" ? `, or run: pnpm setup-ens project ${input.name}` : ". It needs ETH in the owner wallet"}`), { status: 409 });
     row = { mode: "custom", name: input.name, preview_name: previewName, resolver, prod_resolver: prodResolver };
   } else {
+    if (network !== "sepolia") throw Object.assign(new Error("Quick names are Sepolia only. On mainnet, deploy to your own ENS name"), { status: 409 });
     row = { mode: "quick", name: await generateQuickName(), preview_name: null, resolver: process.env.PLATFORM_RESOLVER, prod_resolver: null };
   }
   const [p] = await sql`INSERT INTO projects ${sql({
-    user_id: u.id, owner: ref.owner, repo: ref.repo, repo_id: info.id, repo_private: info.private, branch, subfolder, output_dir: input.outputDir ?? null, ...row,
-  } as any)} RETURNING *`;
+    user_id: u.id, network, owner: ref.owner, repo: ref.repo, repo_id: info.id, repo_private: info.private, branch, subfolder, output_dir: input.outputDir ?? null, ...row,
+  } as any)}  RETURNING *`.catch((error: { code?: string }) => {
+    // projects.name is unique. A second project for the same ENS name is the usual cause.
+    if (error.code === "23505") throw Object.assign(new Error(`${row.name} already has a project. Open it from the Projects list and press "Deploy latest commit", or delete it first.`), { status: 409 });
+    throw error;
+  });
   return toProject(p);
 }
 
@@ -63,7 +69,7 @@ projects.get("/", async (c) => {
 });
 
 projects.post("/", async (c) => {
-  const body = z.object({ repoUrl: z.string().url(), branch: z.string().optional(), subfolder: z.string().optional(), outputDir: z.string().optional(), name: z.string().optional(), deploy: z.boolean().optional() }).parse(await c.req.json());
+  const body = z.object({ repoUrl: z.string().url(), branch: z.string().optional(), subfolder: z.string().optional(), outputDir: z.string().optional(), name: z.string().optional(), network: z.enum(["sepolia", "mainnet"]).optional(), deploy: z.boolean().optional() }).parse(await c.req.json());
   const project = await createProject({ id: c.get("user").id, githubToken: c.get("githubToken") }, body);
   const deploy = body.deploy ? await createDeploy(project.id) : undefined;
   return c.json({ project, deploy }, 201);
@@ -94,7 +100,7 @@ projects.post("/:id/arkiv-events", async (c) => {
   if (!p) return c.json({ error: "Project not found" }, 404);
   if (p.mode !== "custom") return c.json({ error: "Arkiv controller events require a protected project" }, 409);
   const { transactionHash } = z.object({ transactionHash: z.string().regex(/^0x[0-9a-fA-F]{64}$/) }).parse(await c.req.json());
-  const source = chain();
+  const source = chain(p.network);
   const controller = await readText(source.public, `prod.${p.name}`, "ensure.controller").catch(() => "");
   if (!isAddress(controller)) return c.json({ error: "No valid ENSure controller is set in prod.ensure.controller" }, 409);
   const result = await recordControllerEventFromTransaction({
@@ -115,7 +121,7 @@ projects.post("/:id/rollback", async (c) => {
   const [d] = await sql`SELECT receipt FROM deploys WHERE id = ${deployId} AND project_id = ${p.id} AND status = 'live'`;
   if (!d?.receipt) return c.json({ error: "Deploy not found" }, 404);
   const log: string[] = [];
-  const txHash = await withChainLock(() => publishName(chain(), p.resolver, p.name, d.receipt, (l) => log.push(l)));
+  const txHash = await withChainLock(() => publishName(chain(p.network), p.resolver, p.name, d.receipt, (l) => log.push(l)));
   return c.json({ ok: true, txHash, name: p.name, siteCid: d.receipt.siteCid });
 });
 
@@ -126,7 +132,7 @@ projects.post("/:id/records", async (c) => {
   if (p.mode !== "quick") return c.json({ error: "This name is protected. Set records from the owner's wallet" }, 409);
   const { key, value } = z.object({ key: z.string().min(1).max(100), value: z.string().max(2000) }).parse(await c.req.json());
   if (key.startsWith("ensure.")) return c.json({ error: "ensure.* records are managed by deploys" }, 400);
-  const client = chain();
+  const client = chain(p.network);
   const hash = await withChainLock(async () => {
     const h = await client.wallet.writeContract({ address: p.resolver as Address, abi: resolverAbi, functionName: "setText", args: [dnsEncode(p.name), key, value] });
     const r = await client.public.waitForTransactionReceipt({ hash: h });

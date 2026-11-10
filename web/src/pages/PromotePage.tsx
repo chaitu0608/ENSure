@@ -6,7 +6,6 @@ import { useAccount, useConnect, useWalletClient } from "wagmi";
 import { encodeFunctionData, getAddress, keccak256, parseAbi, toBytes, type Address, type Hex } from "viem";
 import { commitDigest } from "@ensure/core/manifest";
 import { controllerAbi, promoteTypedData, readControllerState, rollbackTypedData, type PromoteAction, type RollbackAction } from "../../../tools/ensure-sepolia/scripts/controller-v2";
-import { sepolia } from "viem/chains";
 import type { Core, Envelope } from "../../../tools/ensure-sepolia/scripts/release-approval";
 import { typedApproval } from "../../../tools/ensure-sepolia/scripts/release-approval";
 import { buildPromotion, resolverAbi, signedBuildHash } from "../../../tools/ensure-sepolia/scripts/owner-promote-shared";
@@ -19,12 +18,12 @@ import { Dialog, DialogContent, DialogDescription, DialogTitle } from "@/compone
 import { AuthorityPanel } from "@/components/AuthorityPanel";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { deployment, publicClient } from "@/lib/config";
+import { NETWORK_NAME, activeChain, deployment, isMainnet, publicClient } from "@/lib/config";
 import { dnsEncode, readNameSnapshot } from "@/lib/ens";
 import { readReleaseHistory, type ReleaseRow } from "@/lib/history";
 import { cidFromPointer } from "@/lib/ipfs";
 import { readCurrentProjectOwner, verifyBuildManifestFiles, verifyProject } from "@/lib/verify";
-import { shortAddress, shortCid } from "@/lib/utils";
+import { etherscanTx, shortAddress, shortCid } from "@/lib/utils";
 
 type Candidate = {
   snapshotBlock: bigint;
@@ -150,8 +149,8 @@ export function PromotePage() {
   const [tamperOpen, setTamperOpen] = useState(false);
 
   const isOwner = Boolean(account.address && owner.data && account.address.toLowerCase() === owner.data.toLowerCase());
-  const isSepolia = account.chainId === sepolia.id;
-  const canAct = Boolean(walletClient && isOwner && isSepolia && candidate.data && !controllerState.data?.paused);
+  const onRightChain = account.chainId === activeChain.id;
+  const canAct = Boolean(walletClient && isOwner && onRightChain && candidate.data && !controllerState.data?.paused);
   // With a controller, only controller-approved artifacts are rollback targets; old direct releases are never offered.
   const rollbackChoices = (history.data?.rows ?? []).filter((row) => row.kind === "promoted" && row.cid && row.txHash && (controller ? row.releaseId : row.envelope));
   const selectedRollback = rollbackChoices.find((row) => row.id === selectedReleaseId);
@@ -251,8 +250,8 @@ export function PromotePage() {
       const latest = await readNameSnapshot(deployment.previewName);
       if (latest.cid !== candidate.data?.cid) throw new Error("Preview changed after you signed. Refresh and sign the new preview before submitting.");
       const hash = controller
-        ? await walletClient.writeContract({ address: controller, abi: controllerAbi, functionName: "promote", args: [signedPromote!.contenthash, signedPromote!.action, signedPromote!.signature], account: account.address, chain: sepolia })
-        : await walletClient.sendTransaction({ account: account.address, chain: sepolia, to: deployment.prodResolver as Address, data: calldata!, value: 0n });
+        ? await walletClient.writeContract({ address: controller, abi: controllerAbi, functionName: "promote", args: [signedPromote!.contenthash, signedPromote!.action, signedPromote!.signature], account: account.address, chain: activeChain })
+        : await walletClient.sendTransaction({ account: account.address, chain: activeChain, to: deployment.prodResolver as Address, data: calldata!, value: 0n });
       setActionReceipt({ title: "Promotion", hash, state: "pending" });
       setStep(3);
       const receipt = await publicClient.waitForTransactionReceipt({ hash, confirmations: 1, timeout: 240_000 });
@@ -269,7 +268,7 @@ export function PromotePage() {
   }
 
   async function updateCiAccess(grant: boolean) {
-    if (!walletClient || !isOwner || !isSepolia || !account.address) return;
+    if (!walletClient || !isOwner || !onRightChain || !account.address) return;
     setActionError(undefined);
     setCiBusy(true);
     try {
@@ -286,7 +285,7 @@ export function PromotePage() {
           ];
       const data = encodeFunctionData({ abi: eacAbi, functionName: "multicall", args: [calls] });
       await publicClient.call({ account: currentOwner, to: deployment.previewResolver as Address, data });
-      const hash = await walletClient.sendTransaction({ account: account.address, chain: sepolia, to: deployment.previewResolver as Address, data, value: 0n });
+      const hash = await walletClient.sendTransaction({ account: account.address, chain: activeChain, to: deployment.previewResolver as Address, data, value: 0n });
       setActionReceipt({ title: grant ? "Grant preview CI access" : "Revoke preview CI access", hash, state: "pending" });
       const receipt = await publicClient.waitForTransactionReceipt({ hash, confirmations: 1, timeout: 240_000 });
       if (receipt.status !== "success") throw new Error("Preview permission transaction reverted");
@@ -301,7 +300,7 @@ export function PromotePage() {
 
   async function rollback() {
     const row = rollbackTarget;
-    if (!row || !walletClient || !isOwner || !isSepolia || !account.address) return;
+    if (!row || !walletClient || !isOwner || !onRightChain || !account.address) return;
     setActionError(undefined);
     setBusy(true);
     try {
@@ -323,7 +322,7 @@ export function PromotePage() {
         const signature = await walletClient.signTypedData({ ...rollbackTypedData(deployment.chainId, controller, action), account: account.address });
         setReviewData(readable({ action, signature }));
         await publicClient.simulateContract({ address: controller, abi: controllerAbi, functionName: "rollback", args: [action, signature], account: currentOwner });
-        hash = await walletClient.writeContract({ address: controller, abi: controllerAbi, functionName: "rollback", args: [action, signature], account: account.address, chain: sepolia });
+        hash = await walletClient.writeContract({ address: controller, abi: controllerAbi, functionName: "rollback", args: [action, signature], account: account.address, chain: activeChain });
       } else {
         if (!row.envelope || !row.cid || !row.buildManifestCid) throw new Error("This historical release does not have an event-linked build manifest, so it cannot be safely restored by the direct-owner path.");
         const checked = await verifyBuildManifestFiles(row.cid, row.buildManifestCid);
@@ -346,7 +345,7 @@ export function PromotePage() {
         const signature = await walletClient.signTypedData({ ...typed, account: account.address, primaryType: "ReleaseApproval" }) as Hex;
         const payload = await promotionCalldata({ core: rollbackCore, signature }, row.buildManifestCid);
         await publicClient.call({ account: currentOwner, to: deployment.prodResolver as Address, data: payload.data });
-        hash = await walletClient.sendTransaction({ account: account.address, chain: sepolia, to: deployment.prodResolver as Address, data: payload.data, value: 0n });
+        hash = await walletClient.sendTransaction({ account: account.address, chain: activeChain, to: deployment.prodResolver as Address, data: payload.data, value: 0n });
       }
       setActionReceipt({ title: `Rollback to release ${row.release ?? "selected"}`, hash, state: "pending" });
       const receipt = await publicClient.waitForTransactionReceipt({ hash, confirmations: 1, timeout: 240_000 });
@@ -364,7 +363,7 @@ export function PromotePage() {
   }
 
   async function setPaused(pause: boolean) {
-    if (!controller || !walletClient || !isOwner || !isSepolia || !account.address) return;
+    if (!controller || !walletClient || !isOwner || !onRightChain || !account.address) return;
     const title = pause ? "Pause promotions" : "Unpause promotions";
     setActionError(undefined);
     setBusy(true);
@@ -372,7 +371,7 @@ export function PromotePage() {
       const currentOwner = await checkOwnerStillCurrent();
       const functionName = pause ? "pause" : "unpause";
       await publicClient.simulateContract({ address: controller, abi: controllerAbi, functionName, account: currentOwner });
-      const hash = await walletClient.writeContract({ address: controller, abi: controllerAbi, functionName, account: account.address, chain: sepolia });
+      const hash = await walletClient.writeContract({ address: controller, abi: controllerAbi, functionName, account: account.address, chain: activeChain });
       setActionReceipt({ title, hash, state: "pending" });
       const receipt = await publicClient.waitForTransactionReceipt({ hash, confirmations: 1, timeout: 240_000 });
       if (receipt.status !== "success") throw new Error(`${title} transaction reverted`);
@@ -388,7 +387,7 @@ export function PromotePage() {
   /** Controlled demo only: the owner writes a CID nobody approved, so Verify can show MISMATCH. Rollback repairs it. */
   async function writeUnapproved() {
     const target = candidate.data;
-    if (!target || !walletClient || !isOwner || !isSepolia || !account.address) return;
+    if (!target || !walletClient || !isOwner || !onRightChain || !account.address) return;
     setActionError(undefined);
     setBusy(true);
     const title = "Unapproved production write";
@@ -396,7 +395,7 @@ export function PromotePage() {
       await checkOwnerStillCurrent();
       const data = encodeFunctionData({ abi: resolverAbi, functionName: "setContenthash", args: [dnsEncode(deployment.prodName), target.contenthash] });
       await publicClient.call({ account: account.address, to: deployment.prodResolver as Address, data });
-      const hash = await walletClient.sendTransaction({ account: account.address, chain: sepolia, to: deployment.prodResolver as Address, data, value: 0n });
+      const hash = await walletClient.sendTransaction({ account: account.address, chain: activeChain, to: deployment.prodResolver as Address, data, value: 0n });
       setActionReceipt({ title, hash, state: "pending" });
       const receipt = await publicClient.waitForTransactionReceipt({ hash, confirmations: 1, timeout: 240_000 });
       if (receipt.status !== "success") throw new Error(`${title} reverted`);
@@ -437,16 +436,16 @@ export function PromotePage() {
     ]);
   }
 
-  const canUseOwnerActions = account.isConnected && isSepolia && isOwner;
+  const canUseOwnerActions = account.isConnected && onRightChain && isOwner;
   const ownerGate = !account.isConnected
     ? <Button variant="secondary" onClick={() => connect({ connector: connectors[0] })} disabled={connecting}><Wallet2 className="size-4" /> {connecting ? "Connecting…" : "Connect owner wallet"}</Button>
-    : !isSepolia ? <Badge variant="warning">Switch wallet to Sepolia</Badge>
-    : <Badge variant="danger">Connected wallet is not the current owner</Badge>;
+    : !onRightChain ? <Badge variant="warning">Switch wallet to {NETWORK_NAME}</Badge>
+    : <Badge variant="danger">{account.address?.toLowerCase() === deployment.ci.toLowerCase() ? "This is the publisher wallet. Only the owner can do this" : "This wallet has no role here. Only the owner can do this"}</Badge>;
 
   return <div className="owner-page">
     <header className="page-intro-split">
-      <div><p className="eyebrow">Owner controls / Sepolia</p><h1 className="editorial-title">You decide<br /><em>what goes <span className="word-cycle word-cycle-offset">live.</span></em></h1><p className="editorial-description">Review the candidate. Sign the exact release. Publish it under your ENS name. Production stays outside CI's reach.</p></div>
-      <div className="owner-identity"><span className="owner-stamp"><LockKeyhole className="size-9" strokeWidth={1.3} aria-hidden="true" /></span><div><p className="eyebrow">Current name owner</p><p className="mt-3 font-mono text-sm" title={owner.data}>{owner.data ? shortAddress(owner.data) : "Reading owner…"}</p><p className="mt-2 text-xs text-muted-foreground">{deployment.prodName}</p></div></div>
+      <div><p className="eyebrow">Owner controls / {NETWORK_NAME}</p><h1 className="editorial-title">You decide<br /><em>what goes <span className="word-cycle word-cycle-offset">live.</span></em></h1><p className="editorial-description">Review the candidate. Sign the exact release. Publish it under your ENS name. Production stays outside CI's reach.</p></div>
+      <div className="owner-identity"><span className="owner-stamp"><LockKeyhole className="size-9" strokeWidth={1.3} aria-hidden="true" /></span><div><p className="eyebrow">Current name owner</p><p className="mt-3 font-mono text-sm" title={owner.data}>{owner.data ? shortAddress(owner.data) : "Reading owner…"}</p><p className="mt-2 text-xs text-muted-foreground">{deployment.prodName}</p>{isMainnet && <a data-testid="live-url" href={`https://${deployment.prodName}.limo/`} target="_blank" rel="noreferrer" className="mt-2 block break-all font-mono text-xs text-primary underline underline-offset-4">{deployment.prodName}.limo</a>}</div></div>
     </header>
 
     <div className="approval-workspace">
@@ -461,7 +460,7 @@ export function PromotePage() {
                 <CandidateField icon={<FileCode2 className="size-4" />} label="Source commit" value={candidate.data.manifest.commitSha} mono />
                 <CandidateField icon={<Fingerprint className="size-4" />} label="Preview CID" value={candidate.data.cid} mono />
                 <CandidateField icon={<FileCode2 className="size-4" />} label="Build manifest CID" value={candidate.data.buildManifestCid} mono />
-                <CandidateField icon={<Clock3 className="size-4" />} label="Candidate snapshot" value={`Sepolia block ${candidate.data.snapshotBlock}`} />
+                <CandidateField icon={<Clock3 className="size-4" />} label="Candidate snapshot" value={`${NETWORK_NAME} block ${candidate.data.snapshotBlock}`} />
                 <CandidateField icon={<ShieldCheck className="size-4" />} label="Next release number" value={`#${candidate.data.releaseNumber}`} />
               </div>
               <div className="mt-5 rounded-xl border border-emerald-300/20 bg-emerald-300/[0.05] p-3.5 text-[11px] leading-5 text-emerald-100"><CheckCircle2 className="mr-1.5 inline size-3.5" /> {candidate.data.manifest.files.length} files fetched and checked against the canonical manifest. The signed release also binds the site CID, commit and {controller ? "manifest digest" : "build hash"}.</div>
@@ -471,7 +470,7 @@ export function PromotePage() {
         <div className="approval-action-grid">
           <Card className="surface-flat"><CardContent className="p-5 sm:p-6">
             <div className="flex items-center gap-2 text-sm font-semibold text-foreground"><Fingerprint className="size-4 text-primary" /> Owner signature</div>
-            <p className="mt-2 text-xs leading-5 text-muted-foreground">{controller ? "EIP-712 · ENSureReleaseController v2 · Sepolia. Approvals expire after 15 minutes." : "EIP-712 · ENSure v1 · Sepolia."} Signing is free; the transaction below costs testnet gas.</p>
+            <p className="mt-2 text-xs leading-5 text-muted-foreground">{controller ? "EIP-712 · ENSureReleaseController v2 · " + NETWORK_NAME + ". Approvals expire after 15 minutes." : `EIP-712 · ENSure v1 · ${NETWORK_NAME}.`} Signing is free; {isMainnet ? "the transaction below costs real ETH." : "the transaction below costs testnet gas."}</p>
             <div className="mt-4 break-all rounded-xl border border-border bg-background px-3.5 py-3 font-mono text-[10px] leading-5 text-muted-foreground">{controller ? "Promote(contenthashHash, buildPointer, manifestDigest, commitDigest, sequence, expectedCurrentReleaseId, nonce, deadline)" : "ReleaseApproval(bytes32 coreHash)"}<br />Current owner: {owner.data ?? "Loading…"}</div>
             <div className="mt-4 flex flex-wrap gap-2">
               {canUseOwnerActions ? <Button onClick={() => void signApproval()} disabled={!canAct || busy || candidate.isLoading}>{busy ? <LoaderCircle className="size-4 animate-spin" /> : <Fingerprint className="size-4" />} Sign release approval</Button> : ownerGate}
@@ -481,7 +480,7 @@ export function PromotePage() {
           <Card className="surface-flat"><CardContent className="p-5 sm:p-6">
             <div className="flex items-center gap-2 text-sm font-semibold text-foreground"><ArrowRight className="size-4 text-primary" /> Production transaction</div>
             <p className="mt-2 text-xs leading-5 text-muted-foreground">{controller ? "The owner submits the signed approval to the controller, which writes all five production records atomically." : "One owner-signed resolver multicall updates the site CID, approval records and ensure.build pointer together."}</p>
-            <p className="mt-2 break-all font-mono text-[10px] leading-5 text-muted-foreground">Sepolia · target {controller ?? deployment.prodResolver}</p>
+            <p className="mt-2 break-all font-mono text-[10px] leading-5 text-muted-foreground">{NETWORK_NAME} · target {controller ?? deployment.prodResolver}</p>
             <Button className="mt-4 w-full" variant={step >= 2 ? "default" : "secondary"} onClick={() => void sendPromotion()} disabled={!canAct || step < 2 || busy || Boolean(actionReceipt?.title === "Promotion")}>{busy ? <LoaderCircle className="size-4 animate-spin" /> : <ArrowRight className="size-4" />}{actionReceipt?.title === "Promotion" ? "Promotion transaction sent" : "Send promotion transaction"}</Button>
             {candidate.data && <p className="mt-3 text-[10px] leading-5 text-muted-foreground">Build manifest fetched from {new URL(candidate.data.manifestGateway).host}; all listed file hashes were checked before signing.</p>}
           </CardContent></Card>
@@ -490,7 +489,7 @@ export function PromotePage() {
     </div>
 
     {actionError && <div role="alert" className="mt-4 rounded-xl border border-rose-300/25 bg-rose-300/[0.05] p-3.5 text-xs leading-5 text-rose-100">{actionError}</div>}
-    {actionReceipt && <motion.div role="status" aria-live="polite" initial={reduceMotion ? false : { opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: reduceMotion ? 0 : .25 }} className="mt-4 rounded-xl border border-border bg-card p-4 text-xs leading-6 text-foreground"><span className="inline-flex items-center gap-2"><LoaderCircle aria-hidden="true" className={`size-3.5 ${actionReceipt.state === "pending" ? "animate-spin" : "text-emerald-200"}`} /> {actionReceipt.title} · {actionReceipt.state}</span><br /><a className="break-all font-mono text-primary hover:text-foreground" href={`https://sepolia.etherscan.io/tx/${actionReceipt.hash}`} target="_blank" rel="noreferrer">{actionReceipt.hash}</a></motion.div>}
+    {actionReceipt && <motion.div role="status" aria-live="polite" initial={reduceMotion ? false : { opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: reduceMotion ? 0 : .25 }} className="mt-4 rounded-xl border border-border bg-card p-4 text-xs leading-6 text-foreground"><span className="inline-flex items-center gap-2"><LoaderCircle aria-hidden="true" className={`size-3.5 ${actionReceipt.state === "pending" ? "animate-spin" : "text-emerald-200"}`} /> {actionReceipt.title} · {actionReceipt.state}</span><br /><a className="break-all font-mono text-primary hover:text-foreground" href={etherscanTx(actionReceipt.hash)} target="_blank" rel="noreferrer">{actionReceipt.hash}</a></motion.div>}
     {finalState && <Button className="mt-4" variant="secondary" size="sm" onClick={startNextRelease} data-testid="next-release"><ArrowRight className="size-3.5" /> Start the next release</Button>}
     {finalState && <motion.div role="status" aria-live="polite" initial={reduceMotion ? false : { opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: reduceMotion ? 0 : .25 }} className="mt-4 rounded-xl border border-border bg-card p-4 text-xs leading-5 text-foreground"><CheckCircle2 aria-hidden="true" className="mr-1.5 inline size-4 text-primary" /> Transaction confirmed. Live re-check: {finalState}</motion.div>}
     {reviewData && <details className="mt-4 rounded-xl border border-border bg-card p-4 text-[10px] text-muted-foreground"><summary className="cursor-pointer font-medium">Review signed EIP-712 release data</summary><pre className="mt-3 overflow-auto whitespace-pre-wrap break-all font-mono leading-5">{reviewData}</pre></details>}
@@ -522,7 +521,7 @@ export function PromotePage() {
                 <Select value={selectedReleaseId} onValueChange={setSelectedReleaseId} disabled={!rollbackChoices.length}><SelectTrigger id="rollback-release" className="font-mono text-xs"><SelectValue placeholder={rollbackChoices.length ? "Choose a previous approved release" : "No rollback-ready releases found yet"} /></SelectTrigger><SelectContent>{rollbackChoices.map((row) => <SelectItem key={row.id} value={row.id} className="font-mono text-xs">#{row.release ?? row.id.slice(0, 12)} · {row.commit?.slice(0, 10) ?? "unknown commit"} · {row.cid ? shortCid(row.cid) : "no CID"}</SelectItem>)}</SelectContent></Select>
                 {selectedRollback && <p className="mt-2 truncate font-mono text-[10px] text-muted-foreground">CID {selectedRollback.cid} · build manifest {selectedRollback.buildManifestCid ?? "not indexed"}</p>}
               </div>
-              <Button variant="secondary" onClick={() => selectedRollback && setRollbackTarget(selectedRollback)} disabled={!selectedRollback || !isOwner || !isSepolia || busy || !walletClient}><RotateCcw className="size-4" /> Roll back</Button>
+              <Button variant="secondary" onClick={() => selectedRollback && setRollbackTarget(selectedRollback)} disabled={!selectedRollback || !isOwner || !onRightChain || busy || !walletClient}><RotateCcw className="size-4" /> Roll back</Button>
             </CardContent>
           </Card>
         </TabsContent>
@@ -540,7 +539,7 @@ export function PromotePage() {
             <CardHeader className="border-b border-border px-0 sm:px-0"><CardTitle>Release controller</CardTitle><p className="text-xs leading-5 text-muted-foreground">Pausing blocks promotions only. Signed rollback still works, and the live site stays online.</p></CardHeader>
             <CardContent className="flex flex-col gap-4 px-0 py-5 sm:flex-row sm:items-center sm:justify-between sm:px-0">
               <div className="min-w-0"><p className="break-all font-mono text-xs text-foreground">{controller}</p><p className="mt-1 text-[11px] text-muted-foreground">Sequence {controllerState.data?.lastSequence.toString() ?? "…"} · {controllerState.data?.paused ? "promotions paused" : "promotions active"}</p></div>
-              <Button variant={controllerState.data?.paused ? "secondary" : "danger"} onClick={() => void setPaused(!controllerState.data?.paused)} disabled={busy || !controllerState.data || !isOwner || !isSepolia || !walletClient}>{controllerState.data?.paused ? "Unpause promotions" : "Pause promotions"}</Button>
+              <Button variant={controllerState.data?.paused ? "secondary" : "danger"} onClick={() => void setPaused(!controllerState.data?.paused)} disabled={busy || !controllerState.data || !isOwner || !onRightChain || !walletClient}>{controllerState.data?.paused ? "Unpause promotions" : "Pause promotions"}</Button>
             </CardContent>
           </Card>
         </TabsContent>}
@@ -562,9 +561,9 @@ export function PromotePage() {
     {rollbackTarget && <Dialog open onOpenChange={(open) => { if (!open && !busy) setRollbackTarget(undefined); }}>
       <DialogContent>
         <DialogTitle className="text-lg font-semibold text-foreground">Restore this approved build?</DialogTitle>
-        <DialogDescription className="mt-2 text-sm leading-6 text-muted-foreground">This will write a new production release that points to the selected immutable IPFS content and ask you for a fresh owner signature. Target on Sepolia: {controller ?? deployment.prodResolver}.</DialogDescription>
+        <DialogDescription className="mt-2 text-sm leading-6 text-muted-foreground">This will write a new production release that points to the selected immutable IPFS content and ask you for a fresh owner signature. Target on {NETWORK_NAME}: {controller ?? deployment.prodResolver}.</DialogDescription>
         <div className="my-4 break-all rounded-xl border border-border bg-background p-3 font-mono text-xs leading-5 text-muted-foreground">Release #{rollbackTarget.release}<br />{rollbackTarget.cid}<br />Build manifest: {rollbackTarget.buildManifestCid}</div>
-        <div className="mt-5 flex justify-end gap-2"><Button variant="secondary" onClick={() => setRollbackTarget(undefined)} disabled={busy}>Cancel</Button><Button variant="danger" onClick={() => void rollback()} disabled={!isOwner || !isSepolia || busy}>{busy ? <LoaderCircle className="size-4 animate-spin" /> : <RotateCcw className="size-4" />} Confirm rollback</Button></div>
+        <div className="mt-5 flex justify-end gap-2"><Button variant="secondary" onClick={() => setRollbackTarget(undefined)} disabled={busy}>Cancel</Button><Button variant="danger" onClick={() => void rollback()} disabled={!isOwner || !onRightChain || busy}>{busy ? <LoaderCircle className="size-4 animate-spin" /> : <RotateCcw className="size-4" />} Confirm rollback</Button></div>
       </DialogContent>
     </Dialog>}
   </div>;

@@ -3,7 +3,7 @@ import { randomBytes, randomInt } from "node:crypto";
 import { Hono } from "hono";
 import { getAddress, isAddress, type Hex } from "viem";
 import { z } from "zod";
-import { findOwner, registryAbi } from "@ensure/core/ens";
+import { findOwner, registryAbi, type Network } from "@ensure/core/ens";
 import { requireUser, type Env } from "./auth";
 import { sql } from "./db";
 import { chain } from "./deploys";
@@ -29,12 +29,12 @@ export async function generateQuickName(): Promise<string> {
 export const names = new Hono<Env>();
 
 names.post("/custom/challenge", requireUser, async (c) => {
-  const body = z.object({ name: z.string().regex(NAME), wallet: z.string().refine(isAddress) }).parse(await c.req.json());
+  const body = z.object({ name: z.string().regex(NAME), wallet: z.string().refine(isAddress), network: z.enum(["sepolia", "mainnet"]).default("sepolia") }).parse(await c.req.json());
   const nonce = randomBytes(16).toString("hex");
   const expires = new Date(Date.now() + 10 * 60_000);
   const wallet = getAddress(body.wallet);
-  const message = `ENSure name ownership\nName: ${body.name}\nWallet: ${wallet}\nNonce: ${nonce}\nExpires: ${expires.toISOString()}`;
-  await sql`INSERT INTO name_challenges (nonce, name, wallet, message, user_id, expires_at) VALUES (${nonce}, ${body.name}, ${wallet}, ${message}, ${c.get("user").id}, ${expires})`;
+  const message = `ENSure name ownership\nNetwork: ${body.network}\nName: ${body.name}\nWallet: ${wallet}\nNonce: ${nonce}\nExpires: ${expires.toISOString()}`;
+  await sql`INSERT INTO name_challenges (nonce, network, name, wallet, message, user_id, expires_at) VALUES (${nonce}, ${body.network}, ${body.name}, ${wallet}, ${message}, ${c.get("user").id}, ${expires})`;
   return c.json({ nonce, message });
 });
 
@@ -42,7 +42,7 @@ names.post("/custom/verify", requireUser, async (c) => {
   const body = z.object({ nonce: z.string(), signature: z.string().regex(/^0x[0-9a-fA-F]+$/) }).parse(await c.req.json());
   const [ch] = await sql`SELECT * FROM name_challenges WHERE nonce = ${body.nonce} AND user_id = ${c.get("user").id} AND expires_at > now() AND verified_at IS NULL`;
   if (!ch) return c.json({ error: "Challenge not found or expired" }, 404);
-  const { public: client } = chain();
+  const { public: client } = chain(ch.network);
   // Works for wallets and contract accounts such as a Safe.
   const signed = await client.verifyMessage({ address: ch.wallet, message: ch.message, signature: body.signature as Hex });
   if (!signed) return c.json({ error: "Signature doesn't match the wallet" }, 401);
@@ -52,6 +52,6 @@ names.post("/custom/verify", requireUser, async (c) => {
   return c.json({ ok: true, name: ch.name, wallet: ch.wallet });
 });
 
-export const isVerified = async (name: string, userId: string) =>
-  (await sql`SELECT 1 FROM name_challenges WHERE name = ${name} AND user_id = ${userId} AND verified_at IS NOT NULL`).length > 0;
+export const isVerified = async (name: string, userId: string, network: Network = "sepolia") =>
+  (await sql`SELECT 1 FROM name_challenges WHERE name = ${name} AND network = ${network} AND user_id = ${userId} AND verified_at IS NOT NULL`).length > 0;
 

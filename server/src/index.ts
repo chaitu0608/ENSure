@@ -5,7 +5,7 @@ import { ZodError } from "zod";
 import { auth, type Env } from "./auth";
 import { startBot } from "./bot";
 import { migrate } from "./db";
-import { deploys, startPushWatcher, startWorker } from "./deploys";
+import { chain, deploys, mainnetReady, startPushWatcher, startWorker } from "./deploys";
 import { github } from "./github";
 import { names } from "./names";
 import { projects } from "./projects";
@@ -16,6 +16,13 @@ export function createApp() {
   const app = new Hono<Env>();
   app.use(cors({ origin: (process.env.WEB_URL ?? "http://localhost:5183").split(","), credentials: true }));
   app.get("/health", (c) => c.json({ ok: true }));
+  // Public addresses only. The setup page needs to know which account to give preview rights to.
+  app.get("/networks", (c) => c.json({
+    sepolia: { ready: true, publisher: chain("sepolia").account, quickNames: true },
+    mainnet: { ready: mainnetReady(), publisher: mainnetReady() ? chain("mainnet").account : null, quickNames: false },
+    // "local" runs builds as a plain process on this machine: no keys in its environment, but not isolated.
+    buildSandbox: process.env.BUILD_SANDBOX === "local" ? "local" : "docker",
+  }));
   app.route("/auth", auth);
   app.route("/github", github);
   app.route("/names", names);

@@ -25,8 +25,9 @@ function fail(msg: string): never {
 
 if (!/^[0-9a-f]{40}$/.test(commitSha)) fail("Set GITHUB_SHA (or COMMIT_SHA) to a 40-char lowercase hex commit");
 if (!process.env.PINATA_JWT) fail("PINATA_JWT is required");
-if (!process.env.CI_PRIVATE_KEY) fail("CI_PRIVATE_KEY is required");
-if (!process.env.SEPOLIA_RPC_URL) fail("SEPOLIA_RPC_URL is required (public Sepolia RPC; prefer a repo variable)");
+const onMainnet = process.env.ENSURE_NETWORK === "mainnet";
+if (!process.env[onMainnet ? "MAINNET_PUBLISHER_PRIVATE_KEY" : "CI_PRIVATE_KEY"]) fail(`${onMainnet ? "MAINNET_PUBLISHER_PRIVATE_KEY" : "CI_PRIVATE_KEY"} is required`);
+if (!process.env[onMainnet ? "MAINNET_RPC_URL" : "SEPOLIA_RPC_URL"]) fail(`${onMainnet ? "MAINNET_RPC_URL" : "SEPOLIA_RPC_URL"} is required`);
 if (!existsSync(resolve(siteDir, "index.html"))) fail(`Missing ${siteDir}/index.html (run: pnpm --filter @ensure/site build)`);
 
 const log = (line: string) => console.log(line);
@@ -59,7 +60,7 @@ const receipt = {
   manifestDigest: pinned.manifestDigest,
   commitDigest: pinned.commitDigest,
   contenthash: pinned.contenthash,
-  name: JSON.parse(readFileSync(resolve("deployments/sepolia.json"), "utf8")).previewName as string,
+  name: JSON.parse(readFileSync(resolve(`deployments/${onMainnet ? "mainnet" : "sepolia"}.json`), "utf8")).previewName as string,
 };
 writeFileSync("receipt.json", JSON.stringify(receipt, null, 2) + "\n");
 log(`Wrote receipt.json (site=${pinned.siteCid} manifest=${pinned.manifestCid})`);
